@@ -578,59 +578,40 @@ def graph_build(click_ctx, batch, max_chunks):
                 break
 
         for chunk_id, chunk_text in rows:
+            processed += 1
             try:
                 result = dere.extractor.extract(chunk_text)
                 if result.is_empty():
                     continue
 
-                # Bulk-import entities and relations
-                entities = []
+                # Create entities and build name→id map
+                entity_name_map: dict[str, int] = {}
                 for ent in result.entities:
-                    entities.append(
-                        {
-                            "name": ent.name,
-                            "entity_type": ent.entity_type,
-                        }
-                    )
-
-                links = []
-                entity_name_map = {}
-                for e in entities:
-                    eid = dere.graph.get_or_create_entity(e["name"], e["entity_type"])
-                    entity_name_map[e["name"]] = eid
-                    links.append(
-                        {
-                            "entity_name": e["name"],
-                            "chunk_id": chunk_id,
-                            "relevance": 1.0,
-                        }
-                    )
+                    eid = dere.graph.get_or_create_entity(ent.name, ent.entity_type)
+                    entity_name_map[ent.name] = eid
                     entity_count += 1
 
-                # Relations
-                rel_data = []
+                # Link entities to this chunk
+                for name, eid in entity_name_map.items():
+                    dere.graph.link_entity_to_chunk(eid, chunk_id, relevance=1.0)
+                    link_count += 1
+
+                # Create relations
                 for rel in result.relations:
                     if rel.source in entity_name_map and rel.target in entity_name_map:
-                        rel_data.append(
-                            {
-                                "source_name": rel.source,
-                                "target_name": rel.target,
-                                "relation_type": rel.relation_type,
-                                "weight": 1.0,
-                            }
+                        dere.graph.add_relation(
+                            entity_name_map[rel.source],
+                            entity_name_map[rel.target],
+                            rel.relation_type,
+                            1.0,
                         )
-
-                imp = dere.graph.bulk_import(entities, rel_data, links)
-                entity_count += imp["entities"]
-                relation_count += imp["relations"]
-                link_count += imp["links"]
+                        relation_count += 1
 
             except Exception as e:
                 errors += 1
                 if errors <= 5:
                     click.echo(f"  ⚠️  Chunk #{chunk_id}: {e}", err=True)
 
-            processed += 1
             if processed % 10 == 0:
                 click.echo(
                     f"  ⏳ {processed}/{total} chunks, {entity_count} entities, {relation_count} relations...",

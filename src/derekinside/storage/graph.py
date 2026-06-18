@@ -16,6 +16,18 @@ from typing import Any, Optional
 
 from derekinside.storage.pgvector import VectorStore
 
+
+def _ensure_json(value: Any) -> Any:
+    if isinstance(value, dict):
+        try:
+            from psycopg.types.json import Json
+
+            return Json(value)
+        except ImportError:
+            return value
+    return value
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -120,7 +132,7 @@ class KnowledgeGraph:
 
             cur.execute(
                 "INSERT INTO entities (name, entity_type, metadata) VALUES (%s, %s, %s) RETURNING id",
-                (name, entity_type, metadata or {}),
+                (name, entity_type, _ensure_json(metadata or {})),
             )
             return cur.fetchone()[0]
 
@@ -157,16 +169,16 @@ class KnowledgeGraph:
             if entity_type:
                 cur.execute(
                     "SELECT id, name, entity_type, metadata FROM entities "
-                    "WHERE (name ILIKE %s OR name % %s) AND entity_type = %s "
+                    "WHERE name ILIKE %s AND entity_type = %s "
                     "ORDER BY LENGTH(name) LIMIT %s",
-                    (f"%{query}%", query, entity_type, limit),
+                    (f"%{query}%", entity_type, limit),
                 )
             else:
                 cur.execute(
                     "SELECT id, name, entity_type, metadata FROM entities "
-                    "WHERE name ILIKE %s OR name % %s "
+                    "WHERE name ILIKE %s "
                     "ORDER BY LENGTH(name) LIMIT %s",
-                    (f"%{query}%", query, limit),
+                    (f"%{query}%", limit),
                 )
             return [
                 Entity(id=r[0], name=r[1], entity_type=r[2], metadata=r[3] or {})

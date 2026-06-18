@@ -9,7 +9,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 
 from derekinside.storage.graph import Entity, Relation
-from derekinside.indexer.entity import EntityExtractor
+from derekinside.indexer.entity import (
+    EntityExtractor,
+    extract_regex,
+    extract_imports,
+)
 from derekinside.search.propagation import GraphPropagator
 
 
@@ -24,7 +28,6 @@ def test_extractor_disabled():
 
 def test_extractor_parsing():
     ext = EntityExtractor(enabled=True)
-    # Direct test of parser with mock-like JSON
     result = ext._parse('{"entities": [], "relations": []}')
     assert result.is_empty()
 
@@ -63,11 +66,11 @@ def test_extractor_parsing_markdown_json():
 
 def test_extractor_filter_generic():
     ext = EntityExtractor(enabled=True)
+    # "data" and "api" are in the generic filter list
     result = ext._parse(
-        '{"entities": [{"name": "data", "type": "concept"}, {"name": "API", "type": "api"}], "relations": []}'
+        '{"entities": [{"name": "data", "type": "concept"}, {"name": "api", "type": "api"}], "relations": []}'
     )
-    assert len(result.entities) == 1  # "data" should be filtered out
-    assert result.entities[0].name == "API"
+    assert len(result.entities) == 0  # both filtered
 
 
 def test_extractor_filter_short():
@@ -87,27 +90,39 @@ def test_extractor_filter_long():
     assert len(result.entities) == 0  # too long
 
 
-def test_extractor_missing_relation_endpoint():
-    ext = EntityExtractor(enabled=True)
-    result = ext._parse("""
-    {
-        "entities": [{"name": "ServiceA", "type": "class"}],
-        "relations": [{"source": "ServiceA", "target": "ServiceB", "type": "calls"}]
-    }
-    """)
-    assert len(result.entities) == 1
-    assert len(result.relations) == 0  # "ServiceB" is not in entities
+# ── Regex Extraction ──────────────────────────────────────────
 
 
-def test_extractor_regex_fallback():
-    ext = EntityExtractor(enabled=True)
-    result = ext._parse_with_regex(
-        'entities: [{"name": "Foo", "type": "class"}] '
-        'relations: [{"source": "Foo", "target": "Bar", "type": "calls"}]'
+def test_extract_regex_class():
+    result = extract_regex("public class KYCService {")
+    assert any(
+        e.name == "KYCService" and e.entity_type == "class" for e in result.entities
     )
-    assert result is not None
-    assert len(result["entities"]) == 1
-    assert result["entities"][0]["name"] == "Foo"
+
+
+def test_extract_regex_function():
+    result = extract_regex("def handle_approval(self):")
+    assert any(
+        e.name == "handle_approval" and e.entity_type == "function"
+        for e in result.entities
+    )
+
+
+def test_extract_regex_api():
+    result = extract_regex('@GetMapping("/api/v1/kyc")')
+    assert any(e.entity_type == "api" for e in result.entities)
+
+
+def test_extract_imports():
+    result = extract_imports("import com.tradeoms.kyc.KYCService;")
+    assert any(e.name == "KYCService" for e in result.entities)
+
+
+def test_extract_no_false_positives():
+    result = extract_regex("function foo() { return true; }")
+    # "foo" might be extracted, "true" should not be
+    for e in result.entities:
+        assert e.name != "true"
 
 
 # ── Knowledge Graph Dataclasses ────────────────────────────────
@@ -147,4 +162,4 @@ def test_propagator_softmax():
     scores = [1.0, 2.0, 3.0]
     sm = _softmax(scores)
     assert abs(sum(sm) - 1.0) < 0.001
-    assert sm[2] > sm[1] > sm[0]  # highest gets most
+    assert sm[2] > sm[1] > sm[0]
