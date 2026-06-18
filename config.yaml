@@ -36,7 +36,7 @@ knowledge_graph:
   extraction_model: qwen2.5-coder:7b
 
 mcp_server:
-  enabled: false       # Phase 3
+  enabled: true        # Phase 3 ✅
   port: 18892
 
 sources:

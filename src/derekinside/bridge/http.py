@@ -1,0 +1,224 @@
+"""
+derekinside — HTTP (FastAPI) bridge.
+
+Provides REST API for all derekinside operations.
+Supports per-agent isolation via X-Agent-ID header.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from typing import Any, Optional
+
+try:
+    from fastapi import FastAPI, HTTPException, Request
+    from fastapi.middleware.cors import CORSMiddleware
+    import uvicorn
+
+    HAS_FASTAPI = True
+except ImportError:
+    HAS_FASTAPI = False
+
+from derekinside.bridge.auth import Auth
+from derekinside.storage.pgvector import VectorStore
+from derekinside.storage.graph import KnowledgeGraph
+from derekinside.indexer.embedder import Embedder
+from derekinside.indexer.entity import EntityExtractor
+from derekinside.search.hybrid import HybridSearch, SearchRequest
+
+logger = logging.getLogger(__name__)
+
+
+def create_app(
+    store: VectorStore,
+    embedder: Embedder,
+    auth: Optional[Auth] = None,
+    kg: Optional[KnowledgeGraph] = None,
+    extractor: Optional[EntityExtractor] = None,
+) -> Any:
+    """Create and configure the FastAPI application."""
+    if not HAS_FASTAPI:
+        raise ImportError("FastAPI required: pip install 'derekinside[http]'")
+
+    app = FastAPI(title="DereInside", version="0.1.0")
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    searcher = HybridSearch(store=store)
+
+    if auth is None:
+        auth = Auth()
+
+    def _check_auth(req: Request) -> None:
+        if auth and auth.enabled:
+            token = req.headers.get(auth._config.header, "")
+            if not auth.check(token):
+                raise HTTPException(status_code=401, detail="Unauthorized")
+
+    def _get_agent_wing(req: Request) -> Optional[str]:
+        agent_id = req.headers.get("X-Agent-ID", "")
+        if agent_id and kg:
+            from derekinside.bridge.agent_store import AgentStore
+
+            as_ = AgentStore(store)
+            info = as_.get_agent(agent_id)
+            if info:
+                return info.wing
+        return None
+
+    # ── Endpoints ─────────────────────────────────────────
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok", "version": "0.1.0"}
+
+    @app.get("/api/v1/status")
+    async def api_status(request: Request):
+        _check_auth(request)
+        stats = store.stats()
+        result = {
+            "wings": stats["wings"],
+            "rooms": stats["rooms"],
+            "pages": stats["pages"],
+            "chunks": stats["chunks"],
+            "embedded_chunks": stats["embedded_chunks"],
+            "version": "0.1.0",
+        }
+        if kg:
+            try:
+                gs = kg.stats()
+                result["graph"] = {
+                    "entities": gs["entities"],
+                    "relations": gs["relations"],
+                    "links": gs["entity_chunk_links"],
+                }
+            except Exception:
+                pass
+        return result
+
+    @app.post("/api/v1/search")
+    async def api_search(request: Request):
+        _check_auth(request)
+        body = await request.json()
+        query = body.get("query", "")
+        if not query:
+            raise HTTPException(status_code=400, detail="query required")
+
+        top_k = body.get("top_k", 20)
+        wing = body.get("wing") or _get_agent_wing(request)
+        room = body.get("room")
+        use_recent = body.get("use_recent", False)
+
+        t0 = time.time()
+        query_embedding = embedder.embed(query)
+
+        req = SearchRequest(
+            query=query,
+            embedding=query_embedding,
+            top_k=top_k,
+            wing=wing,
+            room=room,
+            temporal_boost=use_recent,
+        )
+        resp = searcher.search(req)
+
+        elapsed = time.time() - t0
+
+        return {
+            "query": query,
+            "total": resp.total,
+            "timing_ms": round(elapsed * 1000, 1),
+            "results": [r.to_dict() for r in resp.results],
+        }
+
+    @app.get("/api/v1/graph/stats")
+    async def api_graph_stats(request: Request):
+        _check_auth(request)
+        if not kg:
+            raise HTTPException(status_code=404, detail="Knowledge graph not enabled")
+        return kg.stats()
+
+    @app.get("/api/v1/graph/entity/{name}")
+    async def api_graph_entity(name: str, request: Request):
+        _check_auth(request)
+        if not kg:
+            raise HTTPException(status_code=404, detail="Knowledge graph not enabled")
+        entity = kg.get_entity_by_name(name)
+        if not entity:
+            raise HTTPException(status_code=404, detail=f"Entity '{name}' not found")
+        relations = kg.get_relations_for_entity(entity.id)
+        chunk_ids = kg.get_chunks_for_entity(entity.id, limit=20)
+        return {
+            "entity": entity.to_dict(),
+            "relations": [r.to_dict() for r in relations],
+            "chunk_ids": chunk_ids,
+            "chunk_count": len(chunk_ids),
+        }
+
+    @app.get("/api/v1/wings")
+    async def api_wings(request: Request):
+        _check_auth(request)
+        return [
+            {"name": w.name, "rooms": w.room_count, "pages": w.page_count}
+            for w in store.list_wings()
+        ]
+
+    @app.post("/api/v1/wake")
+    async def api_wake(request: Request):
+        _check_auth(request)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        hours = body.get("hours", 24)
+        query_embedding = embedder.embed("recent changes updates modifications")
+        req = SearchRequest(
+            query="wake context",
+            embedding=query_embedding,
+            top_k=10,
+            wing=body.get("wing") or _get_agent_wing(request),
+            temporal_boost=True,
+            recent_days=hours // 24 + 1,
+        )
+        resp = searcher.search(req)
+        return {
+            "context": [
+                {
+                    "wing": r.wing_name,
+                    "room": r.room_name,
+                    "source": r.source_path or r.title or r.slug,
+                    "preview": r.chunk_text[:200],
+                }
+                for r in resp.results
+            ],
+            "total": resp.total,
+        }
+
+    return app
+
+
+def serve_http(
+    store: VectorStore,
+    embedder: Embedder,
+    auth: Optional[Auth] = None,
+    kg: Optional[KnowledgeGraph] = None,
+    extractor: Optional[EntityExtractor] = None,
+    host: str = "0.0.0.0",
+    port: int = 18890,
+) -> None:
+    """Start the HTTP server."""
+    if not HAS_FASTAPI:
+        print("❌ FastAPI not installed. Run: pip install 'derekinside[http]'")
+        return
+
+    app = create_app(store, embedder, auth, kg, extractor)
+    print(f"🌐 HTTP bridge starting on http://{host}:{port}")
+    print(f"   Documentation: http://{host}:{port}/docs")
+    print(f"   Health: http://{host}:{port}/health")
+    uvicorn.run(app, host=host, port=port, log_level="info")

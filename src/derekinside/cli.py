@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json as _json
 import logging
+import os
 import time
 from pathlib import Path
 
@@ -638,13 +639,73 @@ def graph_build(click_ctx, batch, max_chunks):
 
 
 @main.command()
+@click.option(
+    "--mode",
+    default="http",
+    type=click.Choice(["http", "mcp", "both"]),
+    help="Serve mode: http (REST), mcp (stdio), both",
+)
 @click.option("--port", default=18890, type=int, help="HTTP port")
+@click.option("--host", default="0.0.0.0", help="HTTP bind address")
 @click.pass_context
-def serve(click_ctx, port):
-    """Start HTTP bridge (FastAPI)."""
-    click.echo("🌐 Starting HTTP bridge...")
-    click.echo("   FastAPI bridge coming in Phase 3")
-    click.echo("   For now, use the CLI: derekinside search 'query'")
+def serve(click_ctx, mode, port, host):
+    """Start bridge server (HTTP, MCP, or both)."""
+    dere = _get_ctx(click_ctx)
+
+    if mode == "http" or mode == "both":
+        from derekinside.bridge.http import serve_http
+        from derekinside.bridge.auth import Auth, AuthConfig
+
+        ac = AuthConfig(
+            enabled=dere.cfg.mcp_server.enabled,
+            token=os.environ.get("DEREINSIDE_TOKEN", ""),
+        )
+        auth = Auth(ac)
+
+        import threading
+
+        http_thread = threading.Thread(
+            target=serve_http,
+            args=(dere.store, dere.embedder),
+            kwargs={
+                "auth": auth,
+                "kg": dere.graph if dere.cfg.knowledge_graph.enabled else None,
+                "extractor": dere.extractor
+                if dere.cfg.knowledge_graph.enabled
+                else None,
+                "host": host,
+                "port": port,
+            },
+            daemon=True,
+        )
+        http_thread.start()
+        click.echo(f"🌐 HTTP bridge starting on http://{host}:{port}")
+
+    if mode == "mcp" or mode == "both":
+        from derekinside.bridge.mcp import MCPServer
+
+        mcp = MCPServer()
+        if mode == "both":
+            click.echo("📡 MCP server starting on stdio...")
+            import time
+
+            time.sleep(1)
+            mcp.run()
+        else:
+            click.echo("📡 MCP server starting on stdio...")
+            mcp.run()
+
+    if mode == "http":
+        import time
+
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            click.echo("\n👋 Shutting down...")
+
+    if mode == "mcp":
+        pass  # mcp.run() blocks
 
 
 if __name__ == "__main__":
