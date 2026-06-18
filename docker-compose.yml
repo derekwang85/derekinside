@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: derekinside-pg
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_DB: derekinside
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - derekinside-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: derekinside-ollama
+    ports:
+      - "11435:11434"
+    volumes:
+      - derekinside-ollama:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+
+volumes:
+  derekinside-pgdata:
+  derekinside-ollama:
