@@ -32,7 +32,7 @@ search:
     recent_weight: 1.5
 
 knowledge_graph:
-  enabled: false       # Phase 2
+  enabled: true        # Phase 2 ✅
   extraction_model: qwen2.5-coder:7b
 
 mcp_server:
