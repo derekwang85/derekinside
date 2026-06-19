@@ -70,9 +70,9 @@ class KnowledgeGraph:
     def conn(self):
         return self._store.conn
 
-    def cursor(self):
+    def cursor(self, *args, **kwargs):
         """Shortcut: get a cursor from the store's connection pool."""
-        return self._store.cursor()
+        return self._store.cursor(*args, **kwargs)
 
     # ── Schema ─────────────────────────────────────────────────
 
