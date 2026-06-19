@@ -218,11 +218,6 @@ def create_app(
             for w in store.list_wings()
         ]
 
-    @app.get("/api/v1/cache/stats")
-    async def cache_stats(request: Request):
-        _check_auth(request)
-        return embed_cache.stats()
-
     @app.post("/api/v1/wake")
     async def api_wake(request: Request):
         _check_auth(request)
@@ -253,6 +248,39 @@ def create_app(
             ],
             "total": resp.total,
         }
+
+    @app.get("/")
+    async def frontend():
+        from fastapi.responses import HTMLResponse
+        from pathlib import Path
+        html = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
+        if html.exists():
+            return HTMLResponse(html.read_text())
+        return HTMLResponse("<h1>DereInside</h1><p>Frontend not found</p>")
+
+    @app.get("/api/v1/entities")
+    async def list_entities(request: Request, q: str = "", limit: int = 100):
+        _check_auth(request)
+        if not kg:
+            raise HTTPException(status_code=404, detail="Knowledge graph not enabled")
+        if q:
+            entities = kg.search_entities(q, limit=limit)
+        else:
+            entities = kg.list_entities(limit=limit)
+        result = []
+        for e in entities:
+            result.append({
+                "id": e.id,
+                "name": e.name,
+                "entity_type": e.entity_type,
+                "chunks": len(kg.get_chunks_for_entity(e.id, limit=1000)),
+            })
+        return {"entities": result, "total": len(result)}
+
+    @app.get("/api/v1/cache/stats")
+    async def cache_stats(request: Request):
+        _check_auth(request)
+        return embed_cache.stats()
 
     return app
 
