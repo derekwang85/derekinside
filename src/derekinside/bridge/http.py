@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import OrderedDict
 from typing import Any, Optional
 
 try:
@@ -30,6 +31,39 @@ from derekinside.search.hybrid import HybridSearch, SearchRequest
 logger = logging.getLogger(__name__)
 
 
+class EmbeddingCache:
+    """LRU cache for query embeddings keyed by query text."""
+
+    def __init__(self, maxsize: int = 256):
+        self._cache: OrderedDict[str, list[float]] = OrderedDict()
+        self._maxsize = maxsize
+        self._hits = 0
+        self._misses = 0
+
+    def get(self, query: str) -> Optional[list[float]]:
+        if query in self._cache:
+            self._cache.move_to_end(query)
+            self._hits += 1
+            return self._cache[query]
+        self._misses += 1
+        return None
+
+    def put(self, query: str, embedding: list[float]) -> None:
+        self._cache[query] = embedding
+        if len(self._cache) > self._maxsize:
+            self._cache.popitem(last=False)
+
+    def stats(self) -> dict:
+        total = self._hits + self._misses
+        return {
+            "size": len(self._cache),
+            "maxsize": self._maxsize,
+            "hits": self._hits,
+            "misses": self._misses,
+            "hit_rate": round(self._hits / total, 3) if total else 0,
+        }
+
+
 def create_app(
     store: VectorStore,
     embedder: Embedder,
@@ -42,6 +76,9 @@ def create_app(
         raise ImportError("FastAPI required: pip install 'derekinside[http]'")
 
     app = FastAPI(title="DereInside", version="0.1.0")
+
+    # Embedding cache shared across requests
+    embed_cache = EmbeddingCache(maxsize=256)
 
     app.add_middleware(
         CORSMiddleware,
@@ -116,7 +153,17 @@ def create_app(
         use_recent = body.get("use_recent", False)
 
         t0 = time.time()
-        query_embedding = embedder.embed(query)
+
+        # Embedding cache lookup
+        q = query.strip().lower()
+        cached = embed_cache.get(q)
+        if cached:
+            query_embedding = cached
+            cache_hit = True
+        else:
+            query_embedding = embedder.embed(query)
+            embed_cache.put(q, query_embedding)
+            cache_hit = False
 
         req = SearchRequest(
             query=query,
@@ -134,6 +181,8 @@ def create_app(
             "query": query,
             "total": resp.total,
             "timing_ms": round(elapsed * 1000, 1),
+            "cache_hit": cache_hit,
+            "cache_stats": embed_cache.stats(),
             "results": [r.to_dict() for r in resp.results],
         }
 
@@ -168,6 +217,11 @@ def create_app(
             {"name": w.name, "rooms": w.room_count, "pages": w.page_count}
             for w in store.list_wings()
         ]
+
+    @app.get("/api/v1/cache/stats")
+    async def cache_stats(request: Request):
+        _check_auth(request)
+        return embed_cache.stats()
 
     @app.post("/api/v1/wake")
     async def api_wake(request: Request):
@@ -221,4 +275,11 @@ def serve_http(
     print(f"🌐 HTTP bridge starting on http://{host}:{port}")
     print(f"   Documentation: http://{host}:{port}/docs")
     print(f"   Health: http://{host}:{port}/health")
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        log_level="info",
+        timeout_keep_alive=300,
+    )
+    # Note: uvicorn timeout_keep_alive=300 gives ollama 5 min for slow embedding
