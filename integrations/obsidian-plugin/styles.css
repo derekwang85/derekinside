@@ -1,0 +1,56 @@
+:root {
+  --dere-bg: #1e1e1e;
+  --dere-fg: #d4d4d4;
+  --dere-accent: #58a6ff;
+  --dere-border: #333;
+  --dere-card-bg: #252526;
+  --dere-hover: #2d2d2d;
+}
+.dere-modal { padding: 0; }
+.dere-search-input {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 16px;
+  border: none;
+  border-bottom: 1px solid var(--dere-border);
+  background: var(--dere-card-bg);
+  color: var(--dere-fg);
+  outline: none;
+}
+.dere-search-input:focus { border-bottom-color: var(--dere-accent); }
+.dere-results { max-height: 400px; overflow-y: auto; }
+.dere-result {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--dere-border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.dere-result:hover { background: var(--dere-hover); }
+.dere-result .dere-meta {
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 4px;
+}
+.dere-result .dere-meta span { margin-right: 8px; }
+.dere-result .dere-preview {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dere-fg);
+}
+.dere-result .dere-preview em {
+  color: #f0a050;
+  font-style: normal;
+  background: rgba(240,160,80,0.15);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+.dere-status-bar {
+  padding: 6px 16px;
+  font-size: 11px;
+  color: #888;
+  border-top: 1px solid var(--dere-border);
+  display: flex;
+  justify-content: space-between;
+}
+.dere-empty { padding: 30px; text-align: center; color: #888; }
+.dere-error { padding: 16px; color: #f14c4c; }

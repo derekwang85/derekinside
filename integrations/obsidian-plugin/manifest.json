@@ -1,0 +1,10 @@
+{
+  "id": "derekinside",
+  "name": "DereInside",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Search derekinside knowledge base from Obsidian. Mine your vault into derekinside.",
+  "author": "derekwang85",
+  "authorUrl": "https://github.com/derekwang85",
+  "isDesktopOnly": false
+}
