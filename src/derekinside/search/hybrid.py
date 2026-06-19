@@ -26,6 +26,8 @@ class SearchRequest:
     recent_days: int = 7
     recent_weight: float = 1.5
     rerank: bool = False
+    before: Optional[str] = None
+    after: Optional[str] = None
 
 
 @dataclass
@@ -59,6 +61,8 @@ class HybridSearch:
                 temporal_boost=req.temporal_boost,
                 recent_days=req.recent_days,
                 recent_weight=req.recent_weight,
+                before=req.before,
+                after=req.after,
             )
         else:
             results = self._store.search_vector(
@@ -66,6 +70,8 @@ class HybridSearch:
                 top_k=req.top_k,
                 wing=req.wing,
                 room=req.room,
+                before=req.before,
+                after=req.after,
             )
 
         t1 = time.time()

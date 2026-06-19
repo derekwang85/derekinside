@@ -151,6 +151,8 @@ def create_app(
         wing = body.get("wing") or _get_agent_wing(request)
         room = body.get("room")
         use_recent = body.get("use_recent", False)
+        before = body.get("before")
+        after = body.get("after")
 
         t0 = time.time()
 
@@ -172,6 +174,8 @@ def create_app(
             wing=wing,
             room=room,
             temporal_boost=use_recent,
+            before=before,
+            after=after,
         )
         resp = searcher.search(req)
 
