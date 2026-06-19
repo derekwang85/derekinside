@@ -35,8 +35,12 @@ class AgentStore:
     def conn(self):
         return self._store.conn
 
+    def cursor(self):
+        return self._store.cursor()
+        return self._store.conn
+
     def ensure_schema(self) -> None:
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS agents (
                     agent_id TEXT PRIMARY KEY,
@@ -50,7 +54,7 @@ class AgentStore:
     def register_agent(self, agent_id: str, name: str = "") -> AgentInfo:
         """Register a new agent or return existing one."""
         wing = f"agent-{agent_id}"
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute(
                 "INSERT INTO agents (agent_id, name, wing) "
                 "VALUES (%s, %s, %s) "
@@ -70,7 +74,7 @@ class AgentStore:
             )
 
     def get_agent(self, agent_id: str) -> Optional[AgentInfo]:
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute(
                 "SELECT agent_id, name, wing, room, created_at FROM agents WHERE agent_id = %s",
                 (agent_id,),
@@ -87,7 +91,7 @@ class AgentStore:
             return None
 
     def list_agents(self) -> list[AgentInfo]:
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute(
                 "SELECT agent_id, name, wing, room, created_at FROM agents ORDER BY agent_id"
             )

@@ -496,7 +496,7 @@ def graph_entity(click_ctx, name):
         click.echo(f"\nLinked chunks ({len(chunk_ids)}):")
         for cid in chunk_ids:
             # Get chunk preview via direct query
-            with dere.store.conn.cursor() as cur:
+            with dere.store.cursor() as cur:
                 cur.execute("SELECT chunk_text[:200] FROM chunks WHERE id = %s", (cid,))
                 row = cur.fetchone()
                 if row:
@@ -524,7 +524,7 @@ def graph_search(click_ctx, query, entity_type, limit):
         chunk_ids = dere.graph.get_chunks_for_entity(e.id, limit=1)
         link_count = "?" if not chunk_ids else "..."
         try:
-            with dere.store.conn.cursor() as cur:
+            with dere.store.cursor() as cur:
                 cur.execute(
                     "SELECT COUNT(*) FROM entity_chunks WHERE entity_id = %s", (e.id,)
                 )
@@ -544,7 +544,7 @@ def graph_build(click_ctx, batch, max_chunks):
     click.echo("🏗️  Building knowledge graph — extracting entities from chunks...")
 
     # Count available chunks
-    with dere.store.conn.cursor() as cur:
+    with dere.store.cursor() as cur:
         cur.execute(
             "SELECT COUNT(*) FROM chunks WHERE chunk_text IS NOT NULL AND LENGTH(chunk_text) > 80"
         )
@@ -567,7 +567,7 @@ def graph_build(click_ctx, batch, max_chunks):
         if max_chunks and offset >= max_chunks:
             break
 
-        with dere.store.conn.cursor() as cur:
+        with dere.store.cursor() as cur:
             cur.execute(
                 "SELECT id, chunk_text FROM chunks "
                 "WHERE chunk_text IS NOT NULL AND LENGTH(chunk_text) > 80 "

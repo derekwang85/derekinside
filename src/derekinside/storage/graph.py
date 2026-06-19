@@ -70,11 +70,15 @@ class KnowledgeGraph:
     def conn(self):
         return self._store.conn
 
+    def cursor(self):
+        """Shortcut: get a cursor from the store's connection pool."""
+        return self._store.cursor()
+
     # ── Schema ─────────────────────────────────────────────────
 
     def ensure_schema(self) -> None:
         """Create entity/relation tables if they don't exist."""
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS entities (
                     id SERIAL PRIMARY KEY,
@@ -124,7 +128,7 @@ class KnowledgeGraph:
         self, name: str, entity_type: str = "concept", metadata: Optional[dict] = None
     ) -> int:
         """Get entity ID by name, create if not exists. Returns (id, created)."""
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute("SELECT id FROM entities WHERE name = %s", (name,))
             row = cur.fetchone()
             if row:
@@ -137,7 +141,7 @@ class KnowledgeGraph:
             return cur.fetchone()[0]
 
     def get_entity_by_name(self, name: str) -> Optional[Entity]:
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute(
                 "SELECT id, name, entity_type, metadata FROM entities WHERE name = %s",
                 (name,),
@@ -150,7 +154,7 @@ class KnowledgeGraph:
             return None
 
     def get_entity(self, entity_id: int) -> Optional[Entity]:
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute(
                 "SELECT id, name, entity_type, metadata FROM entities WHERE id = %s",
                 (entity_id,),
@@ -165,7 +169,7 @@ class KnowledgeGraph:
     def search_entities(
         self, query: str, entity_type: Optional[str] = None, limit: int = 20
     ) -> list[Entity]:
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             if entity_type:
                 cur.execute(
                     "SELECT id, name, entity_type, metadata FROM entities "
@@ -188,7 +192,7 @@ class KnowledgeGraph:
     def list_entities(
         self, entity_type: Optional[str] = None, limit: int = 100, offset: int = 0
     ) -> list[Entity]:
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             if entity_type:
                 cur.execute(
                     "SELECT id, name, entity_type, metadata FROM entities "
@@ -216,7 +220,7 @@ class KnowledgeGraph:
         weight: float = 1.0,
     ) -> int:
         """Add a directed relation between two entities."""
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute(
                 "INSERT INTO relations (source_entity_id, target_entity_id, relation_type, weight) "
                 "VALUES (%s, %s, %s, %s) "
@@ -231,7 +235,7 @@ class KnowledgeGraph:
         """Batch insert relations. Each dict: source_id, target_id, relation_type, weight."""
         if not relations:
             return 0
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             for rel in relations:
                 cur.execute(
                     "INSERT INTO relations (source_entity_id, target_entity_id, relation_type, weight) "
@@ -251,7 +255,7 @@ class KnowledgeGraph:
         self, entity_id: int, direction: str = "both"
     ) -> list[Relation]:
         """Get relations connected to an entity."""
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             if direction == "outgoing":
                 cur.execute(
                     "SELECT id, source_entity_id, target_entity_id, relation_type, weight "
@@ -286,7 +290,7 @@ class KnowledgeGraph:
     def link_entity_to_chunk(
         self, entity_id: int, chunk_id: int, relevance: float = 1.0
     ) -> int:
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute(
                 "INSERT INTO entity_chunks (entity_id, chunk_id, relevance) "
                 "VALUES (%s, %s, %s) "
@@ -300,7 +304,7 @@ class KnowledgeGraph:
         """Batch link entities to chunks. Each dict: entity_id, chunk_id, relevance."""
         if not links:
             return 0
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             for link in links:
                 cur.execute(
                     "INSERT INTO entity_chunks (entity_id, chunk_id, relevance) "
@@ -312,7 +316,7 @@ class KnowledgeGraph:
 
     def get_chunks_for_entity(self, entity_id: int, limit: int = 50) -> list[int]:
         """Get chunk IDs linked to an entity, ordered by relevance."""
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute(
                 "SELECT chunk_id FROM entity_chunks "
                 "WHERE entity_id = %s ORDER BY relevance DESC LIMIT %s",
@@ -322,7 +326,7 @@ class KnowledgeGraph:
 
     def get_entities_for_chunk(self, chunk_id: int) -> list[Entity]:
         """Get entities linked to a specific chunk."""
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute(
                 "SELECT e.id, e.name, e.entity_type, e.metadata "
                 "FROM entities e "
@@ -351,7 +355,7 @@ class KnowledgeGraph:
         entity_ids = [e.id for e in entities]
         placeholders = ",".join(str(e) for e in entity_ids)
 
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute(
                 f"""
                 SELECT ec.chunk_id, COUNT(DISTINCT ec.entity_id) AS shared_entities,
@@ -377,7 +381,7 @@ class KnowledgeGraph:
     # ── Graph Statistics ───────────────────────────────────────
 
     def stats(self) -> dict[str, Any]:
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM entities")
             entities = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM relations")
