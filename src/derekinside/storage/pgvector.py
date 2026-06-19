@@ -152,19 +152,24 @@ class VectorStore:
             self.connect()
         return self._pool.connection()
 
-    def cursor(self):
+    def cursor(self, *args, **kwargs):
         """Shortcut: borrow connection + get cursor in one context.
+
+        Accepts psycopg cursor arguments (e.g. row_factory).
 
         Usage:
             with store.cursor() as cur:
                 cur.execute(...)
+            with store.cursor(row_factory=dict_row) as cur:
+                for row in cur.fetchall():
+                    ...
         """
         from contextlib import contextmanager
 
         @contextmanager
         def _cursor():
             with self._pool.connection() as conn:
-                with conn.cursor() as cur:
+                with conn.cursor(*args, **kwargs) as cur:
                     yield cur
 
         return _cursor()
