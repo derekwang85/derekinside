@@ -64,6 +64,7 @@ class DereContext:
             url="http://localhost:11434/api/generate",
             model=self.cfg.knowledge_graph.extraction_model,
             enabled=self.cfg.knowledge_graph.enabled,
+            use_llm=False,  # toggled by graph build --llm
         )
         self.reranker = Reranker(
             url="http://localhost:11434/api/generate",
@@ -546,10 +547,19 @@ def graph_search(click_ctx, query, entity_type, limit):
 @graph.command(name="build")
 @click.option("--batch", default=20, type=int, help="Chunks per batch")
 @click.option("--max-chunks", default=0, type=int, help="Max chunks to process (0=all)")
+@click.option("--llm", is_flag=True, help="Enable LLM-based entity extraction (qwen1.5b, ~5s/chunk)")
 @click.pass_context
-def graph_build(click_ctx, batch, max_chunks):
+def graph_build(click_ctx, batch, max_chunks, llm):
     """Build knowledge graph: extract entities from all chunks."""
     dere = _get_ctx(click_ctx)
+    if llm:
+        dere.extractor = EntityExtractor(
+            url="http://localhost:11434/api/generate",
+            model="qwen2.5-coder:1.5b",
+            enabled=True,
+            use_llm=True,
+        )
+        click.echo("🧠 LLM extraction enabled (qwen2.5-coder:1.5b, ~5s/chunk)")
     click.echo("🏗️  Building knowledge graph — extracting entities from chunks...")
 
     # Count available chunks
