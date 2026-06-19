@@ -1,7 +1,3 @@
-# DereInside — Main Configuration
-# =================================
-# Knowledge sources, storage, embedding, and search settings.
-
 database:
   host: localhost
   port: 5434
@@ -9,61 +5,78 @@ database:
   user: postgres
   password: postgres
   schema: public
-
 embedding:
   provider: ollama
   model: bge-m3
   dimensions: 1024
   url: http://localhost:11434/api/embed
-
 storage:
   provider: pgvector
-  hybrid_search: true  # vector + keyword RRF
-
+  hybrid_search: true
+  base_path: /media/cbnb/_opdata/derekinside
+  media_path: /media/cbnb/_opdata/derekinside/media
+  backup_path: /media/cbnb/_opdata/derekinside/backups
 search:
   top_k: 20
   rerank:
-    enabled: false     # Phase 1: enable after LLM rerank is set up
+    enabled: false
     provider: ollama
     model: qwen2.5-coder:7b
   temporal_boost:
-    enabled: false     # Phase 1: enable after migration
+    enabled: false
     recent_days: 7
     recent_weight: 1.5
-
 knowledge_graph:
-  enabled: true        # Phase 2 ✅
+  enabled: true
   extraction_model: qwen2.5-coder:7b
-
 mcp_server:
-  enabled: true        # Phase 3 ✅
+  enabled: true
   port: 18892
-
 sources:
-  - name: tradeoms-code
-    type: git
-    path: ~/TradeOMS
-    wing: tradeoms
-    room: code
-    patterns: ["*.java", "*.vue", "*.js", "*.ts", "*.xml", "*.yml", "*.sql"]
-    ignore: ["node_modules/**", "target/**", "dist/**", ".git/**"]
-
-  - name: tradeoms-docs
-    type: git
-    path: ~/TradeOMS
-    wing: tradeoms
-    room: docs
-    patterns: ["*.md", "*.pdf"]
-    ignore: ["node_modules/**", "target/**", "dist/**", ".git/**"]
-
-  - name: openclaw-workspace
-    type: filesystem
-    path: ~/.openclaw/workspace
-    wing: openclaw
-    room: workspace
-    patterns: ["*.md", "*.py", "*.sh", "*.json"]
-    ignore: ["node_modules/**", "skills/**/scripts/**"]
-
+- name: tradeoms-code
+  type: git
+  path: ~/TradeOMS
+  wing: tradeoms
+  room: code
+  patterns:
+  - '*.java'
+  - '*.vue'
+  - '*.js'
+  - '*.ts'
+  - '*.xml'
+  - '*.yml'
+  - '*.sql'
+  ignore:
+  - node_modules/**
+  - target/**
+  - dist/**
+  - .git/**
+- name: tradeoms-docs
+  type: git
+  path: ~/TradeOMS
+  wing: tradeoms
+  room: docs
+  patterns:
+  - '*.md'
+  - '*.pdf'
+  ignore:
+  - node_modules/**
+  - target/**
+  - dist/**
+  - .git/**
+- name: openclaw-workspace
+  type: filesystem
+  path: ~/.openclaw/workspace
+  wing: openclaw
+  room: workspace
+  patterns:
+  - '*.md'
+  - '*.py'
+  - '*.sh'
+  - '*.json'
+  ignore:
+  - node_modules/**
+  - skills/**/scripts/**
 logging:
   level: info
   file: ~/.derekinside/derekinside.log
