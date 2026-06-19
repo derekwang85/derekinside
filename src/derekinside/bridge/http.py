@@ -277,6 +277,64 @@ def create_app(
             })
         return {"entities": result, "total": len(result)}
 
+    @app.post("/api/v1/mine")
+    async def api_mine(request: Request):
+        """Ingest a file's content into derekinside."""
+        _check_auth(request)
+        body = await request.json()
+
+        file_path = body.get("path", "")
+        file_content = body.get("content", "")
+        wing = body.get("wing", "obsidian")
+        room = body.get("room", "notes")
+
+        if not file_content:
+            raise HTTPException(status_code=400, detail="content required")
+
+        from derekinside.indexer.chunker import chunk_text, detect_strategy
+        from pathlib import Path as PPath
+
+        strategy = detect_strategy(file_path) if file_path else "markdown"
+        chunks = chunk_text(file_content, strategy)
+
+        if not chunks:
+            return {"status": "skipped", "reason": "no chunks"}
+
+        wing_id = store.get_or_create_wing(wing, "Obsidian vault")
+        room_id = store.get_or_create_room(wing_id, room, "")
+
+        page_id = store.insert_page(
+            room_id=room_id,
+            slug=file_path,
+            title=PPath(file_path).stem if file_path else "note",
+            source_path=file_path,
+            source_kind="file",
+            page_kind=strategy,
+        )
+
+        texts = [c.text for c in chunks]
+        embeddings = embedder.embed_batch(texts)
+
+        batch_data = []
+        for ci, (chunk, emb) in enumerate(zip(chunks, embeddings)):
+            batch_data.append({
+                "page_id": page_id,
+                "chunk_index": ci,
+                "chunk_text": chunk.text,
+                "token_count": chunk.token_count,
+                "embedding": emb,
+            })
+
+        store.insert_chunks_batch(batch_data)
+
+        return {
+            "status": "ok",
+            "file": file_path,
+            "wing": wing,
+            "room": room,
+            "chunks": len(chunks),
+        }
+
     @app.get("/api/v1/cache/stats")
     async def cache_stats(request: Request):
         _check_auth(request)
