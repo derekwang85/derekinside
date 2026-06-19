@@ -17,8 +17,10 @@ from typing import Any, Optional
 try:
     import psycopg
     from psycopg.rows import dict_row
+    from psycopg_pool import ConnectionPool
 except ImportError:
     psycopg = None
+    ConnectionPool = None
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +90,16 @@ class PageInfo:
 
 
 class VectorStore:
-    """PostgreSQL + pgvector storage manager."""
+    """PostgreSQL + pgvector storage manager.
 
-    def __init__(self, dsn: str, schema: str = "public", **kwargs):
+    Uses connection pool for concurrent access.
+    Default pool: min_size=1, max_size=5.
+    """
+
+    def __init__(
+        self, dsn: str, schema: str = "public",
+        pool_min: int = 1, pool_max: int = 5, **kwargs
+    ):
         if psycopg is None:
             raise ImportError(
                 "psycopg is required. Install: pip install derekinside[pgvector]"
@@ -98,36 +107,73 @@ class VectorStore:
 
         self._dsn = dsn
         self._schema = schema
-        self._conn: Optional[psycopg.Connection] = None
+        self._pool: Optional[ConnectionPool] = None
+        self._pool_min = pool_min
+        self._pool_max = pool_max
         self._extra_conn_kwargs = kwargs
 
-    # ── Connection ──────────────────────────────────────────────
+    # ── Connection Pool ─────────────────────────────────────────
 
     def connect(self) -> None:
-        """Open a connection (creates schema if needed)."""
-        if self._conn and not self._conn.closed:
+        """Initialize connection pool (creates schema if needed)."""
+        if self._pool is not None:
             return
-        self._conn = psycopg.connect(self._dsn, **self._extra_conn_kwargs)
-        self._conn.autocommit = True
-        with self._conn.cursor() as cur:
-            cur.execute(f"SET search_path TO {self._schema}")
+
+        self._pool = ConnectionPool(
+            conninfo=self._dsn,
+            min_size=self._pool_min,
+            max_size=self._pool_max,
+            open=True,
+            configure=lambda conn: setattr(conn, "autocommit", True),
+            **self._extra_conn_kwargs,
+        )
+
+        # Ensure schema exists
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"SET search_path TO {self._schema}")
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     def close(self) -> None:
-        if self._conn and not self._conn.closed:
-            self._conn.close()
-            self._conn = None
+        if self._pool is not None:
+            self._pool.close()
+            self._pool = None
 
     @property
     def conn(self) -> psycopg.Connection:
-        if self._conn is None or self._conn.closed:
+        """Get a connection from pool. Returns context-managed connection.
+
+        Usage:
+            with store.conn as conn:
+                with conn.cursor() as cur:
+                    ...
+        """
+        if self._pool is None:
             self.connect()
-        return self._conn
+        return self._pool.connection()
+
+    def cursor(self):
+        """Shortcut: borrow connection + get cursor in one context.
+
+        Usage:
+            with store.cursor() as cur:
+                cur.execute(...)
+        """
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _cursor():
+            with self._pool.connection() as conn:
+                with conn.cursor() as cur:
+                    yield cur
+
+        return _cursor()
 
     # ── Schema ─────────────────────────────────────────────────
 
     def ensure_schema(self) -> None:
         """Create tables/indexes if they don't exist."""
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS wings (
@@ -199,7 +245,7 @@ class VectorStore:
     # ── Wings ──────────────────────────────────────────────────
 
     def get_or_create_wing(self, name: str, description: str = "") -> int:
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute(
                 "INSERT INTO wings (name, description) VALUES (%s, %s) "
                 "ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING id",
@@ -208,7 +254,7 @@ class VectorStore:
             return cur.fetchone()[0]
 
     def list_wings(self) -> list[WingInfo]:
-        with self.conn.cursor(row_factory=dict_row) as cur:
+        with self.cursor(row_factory=dict_row) as cur:
             cur.execute("""
                 SELECT w.id, w.name, w.description,
                        COUNT(DISTINCT r.id) AS room_count,
@@ -223,7 +269,7 @@ class VectorStore:
     # ── Rooms ──────────────────────────────────────────────────
 
     def get_or_create_room(self, wing_id: int, name: str, description: str = "") -> int:
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute(
                 "INSERT INTO rooms (wing_id, name, description) VALUES (%s, %s, %s) "
                 "ON CONFLICT (wing_id, name) DO UPDATE SET name=EXCLUDED.name RETURNING id",
@@ -232,7 +278,7 @@ class VectorStore:
             return cur.fetchone()[0]
 
     def list_rooms(self, wing_id: Optional[int] = None) -> list[RoomInfo]:
-        with self.conn.cursor(row_factory=dict_row) as cur:
+        with self.cursor(row_factory=dict_row) as cur:
             if wing_id:
                 cur.execute(
                     "SELECT r.*, COUNT(p.id) AS page_count FROM rooms r "
@@ -260,7 +306,7 @@ class VectorStore:
         page_kind: str = "doc",
         metadata: Optional[dict] = None,
     ) -> int:
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute(
                 """INSERT INTO pages (room_id, slug, title, source_path, source_kind, page_kind, metadata)
                    VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id""",
@@ -279,7 +325,7 @@ class VectorStore:
     def list_pages(
         self, room_id: Optional[int] = None, limit: int = 100, offset: int = 0
     ) -> list[PageInfo]:
-        with self.conn.cursor(row_factory=dict_row) as cur:
+        with self.cursor(row_factory=dict_row) as cur:
             if room_id:
                 cur.execute(
                     "SELECT p.*, (SELECT COUNT(*) FROM chunks WHERE page_id = p.id) AS chunk_count "
@@ -304,7 +350,7 @@ class VectorStore:
         token_count: int = 0,
         embedding: Optional[list[float]] = None,
     ) -> int:
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute(
                 """INSERT INTO chunks (page_id, chunk_index, chunk_text, token_count, embedding)
                    VALUES (%s, %s, %s, %s, %s) RETURNING id""",
@@ -316,7 +362,7 @@ class VectorStore:
         """Batch insert chunks. Each dict: page_id, chunk_index, chunk_text, token_count, embedding."""
         if not chunks:
             return 0
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             records = [
                 (
                     c["page_id"],
@@ -369,7 +415,7 @@ class VectorStore:
         """
         full_params = [embed_str] + params + [embed_str, top_k]
 
-        with self.conn.cursor(row_factory=dict_row) as cur:
+        with self.cursor(row_factory=dict_row) as cur:
             cur.execute(sql, full_params)
             return [SearchResult(**r) for r in cur.fetchall()]
 
@@ -405,7 +451,7 @@ class VectorStore:
         """
         full_params = [query, query] + params + [top_k]
 
-        with self.conn.cursor(row_factory=dict_row) as cur:
+        with self.cursor(row_factory=dict_row) as cur:
             cur.execute(sql, full_params)
             return [SearchResult(**r) for r in cur.fetchall()]
 
@@ -479,7 +525,7 @@ class VectorStore:
     # ── Stats ──────────────────────────────────────────────────
 
     def stats(self) -> dict[str, Any]:
-        with self.conn.cursor() as cur:
+        with self.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM wings")
             wings = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM rooms")
