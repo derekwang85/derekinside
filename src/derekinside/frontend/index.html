@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DereInside</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0d1117;color:#c9d1d9;min-height:100vh}
+header{background:#161b22;border-bottom:1px solid #30363d;padding:12px 24px;display:flex;align-items:center;gap:16px}
+header h1{font-size:18px;color:#58a6ff}
+header h1 small{color:#8b949e;font-size:12px;margin-left:8px}
+nav{display:flex;gap:8px;margin-left:auto}
+nav a{color:#8b949e;text-decoration:none;padding:4px 12px;border-radius:6px;font-size:14px}
+nav a:hover{color:#58a6ff;background:#1c2128}
+nav a.active{color:#58a6ff;background:#1c2128;border:1px solid #30363d}
+main{max-width:1200px;margin:0 auto;padding:24px}
+/* Search */
+.search-box{display:flex;gap:8px;margin-bottom:24px}
+.search-box input{flex:1;padding:10px 14px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:16px}
+.search-box input:focus{outline:none;border-color:#58a6ff}
+.search-box button{padding:10px 24px;background:#238636;border:none;border-radius:6px;color:#fff;font-size:14px;cursor:pointer}
+.search-box button:hover{background:#2ea043}
+/* Result cards */
+.result-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:12px}
+.result-card .meta{font-size:12px;color:#8b949e;margin-bottom:6px}
+.result-card .meta span{margin-right:12px}
+.result-card .source{color:#58a6ff;font-size:13px;margin-bottom:4px}
+.result-card .preview{font-size:14px;line-height:1.6;color:#c9d1d9}
+.result-card .preview em{color:#ffa657;font-style:normal;background:rgba(255,166,87,0.15);padding:0 2px;border-radius:2px}
+.result-card .score{color:#8b949e;font-size:12px}
+/* Tabs */
+.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid #30363d}
+.tab{padding:8px 16px;cursor:pointer;border-bottom:2px solid transparent;color:#8b949e;font-size:14px}
+.tab:hover{color:#c9d1d9}
+.tab.active{color:#58a6ff;border-bottom-color:#58a6ff}
+.tab-content{display:none}
+.tab-content.active{display:block}
+/* Stats */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:24px}
+.stat-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;text-align:center}
+.stat-card .value{font-size:24px;font-weight:600;color:#58a6ff}
+.stat-card .label{font-size:12px;color:#8b949e;margin-top:4px}
+/* Graph */
+#graph-container{width:100%;height:600px;background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden}
+#graph-container svg{width:100%;height:100%}
+.graph-controls{display:flex;gap:8px;margin-bottom:12px;align-items:center}
+.graph-controls input{flex:1;padding:8px 12px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9}
+.graph-controls button{padding:8px 16px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;cursor:pointer}
+.graph-controls button:hover{background:#30363d}
+.graph-legend{display:flex;gap:16px;margin:8px 0;font-size:12px;color:#8b949e}
+.legend-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px}
+/* Loading */
+.loading{text-align:center;padding:40px;color:#8b949e}
+.error{color:#f85149;padding:16px;background:#161b22;border:1px solid #f85149;border-radius:8px;margin:12px 0}
+footer{text-align:center;padding:24px;color:#484f58;font-size:12px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🧠 DereInside <small>v0.1.0</small></h1>
+  <nav>
+    <a href="#" class="active" data-tab="search-tab">🔍 Search</a>
+    <a href="#" data-tab="graph-tab">🕸️ 图谱</a>
+    <a href="#" data-tab="stats-tab">📊 状态</a>
+  </nav>
+</header>
+
+<main>
+  <!-- Search Tab -->
+  <div id="search-tab" class="tab-content active">
+    <div class="search-box">
+      <input id="search-input" type="text" placeholder="Search your knowledge base..." onkeydown="if(event.key==='Enter') doSearch()">
+      <button onclick="doSearch()">Search</button>
+    </div>
+    <div id="search-results"></div>
+  </div>
+
+  <!-- Graph Tab -->
+  <div id="graph-tab" class="tab-content">
+    <div class="graph-controls">
+      <input id="graph-search" type="text" placeholder="Find entity..." onkeydown="if(event.key==='Enter') loadGraph()">
+      <button onclick="loadGraph()">Load Graph</button>
+      <button onclick="loadGraphFull()">Full</button>
+    </div>
+    <div class="graph-legend">
+      <span><span class="legend-dot" style="background:#f0883e"></span> function</span>
+      <span><span class="legend-dot" style="background:#58a6ff"></span> class</span>
+      <span><span class="legend-dot" style="background:#3fb950"></span> module</span>
+      <span><span class="legend-dot" style="background:#da3633"></span> api</span>
+      <span><span class="legend-dot" style="background:#8b949e"></span> concept</span>
+    </div>
+    <div id="graph-container"><div class="loading">Loading graph...</div></div>
+  </div>
+
+  <!-- Stats Tab -->
+  <div id="stats-tab" class="tab-content">
+    <div id="stats-container"><div class="loading">Loading stats...</div></div>
+  </div>
+</main>
+
+<footer>DereInside — <span id="graph-stats-footer"></span></footer>
+
+<script>
+const BASE = '';
+
+// Tab switching
+document.querySelectorAll('nav a').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelectorAll('nav a').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(x => x.classList.remove('active'));
+    a.classList.add('active');
+    document.getElementById(a.dataset.tab).classList.add('active');
+
+    if (a.dataset.tab === 'graph-tab') loadGraphFull();
+    if (a.dataset.tab === 'stats-tab') loadStats();
+  });
+});
+
+// Search
+function highlight(text, query) {
+  if (!query) return text;
+  const words = query.split(/\s+/).filter(w => w.length > 1);
+  let result = text;
+  words.forEach(w => {
+    const re = new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    result = result.replace(re, '<em>$1</em>');
+  });
+  return result;
+}
+
+async function doSearch() {
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  const el = document.getElementById('search-results');
+  el.innerHTML = '<div class="loading">Searching...</div>';
+
+  try {
+    const r = await fetch(`${BASE}/api/v1/search`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({query:q, top_k:20}),
+      signal: AbortSignal.timeout(60000)
+    });
+    const data = await r.json();
+    if (!data.results || data.results.length === 0) {
+      el.innerHTML = '<div class="error">No results found.</div>';
+      return;
+    }
+    el.innerHTML = `<div style="color:#8b949e;margin-bottom:12px;font-size:13px">${data.total} results (${data.timing_ms}ms, cache:${data.cache_hit})</div>`;
+    data.results.forEach(r => {
+      const preview = highlight(r.chunk_text, q);
+      const wing = r.wing ? `${r.wing}/` : '';
+      el.innerHTML += `
+        <div class="result-card">
+          <div class="meta">
+            <span>🏛️ ${wing}${r.room || ''}</span>
+            <span>📄 ${r.source_path || r.title || r.slug || '?'}</span>
+            <span>score: ${(r.score||0).toFixed(3)}</span>
+          </div>
+          <div class="preview">${preview}</div>
+        </div>`;
+    });
+  } catch(e) {
+    el.innerHTML = `<div class="error">Search failed: ${e.message}</div>`;
+  }
+}
+
+// Graph
+const TYPE_COLORS = {class:'#58a6ff', function:'#f0883e', module:'#3fb950', api:'#da3633', concept:'#8b949e'};
+
+async function loadGraph() {
+  const q = document.getElementById('graph-search').value.trim();
+  loadGraphFull(q);
+}
+
+async function loadGraphFull(filter) {
+  const container = document.getElementById('graph-container');
+  container.innerHTML = '<div class="loading">Loading graph data...</div>';
+
+  try {
+    const r = await fetch(`${BASE}/api/v1/graph/stats`);
+    if (!r.ok) { container.innerHTML = '<div class="error">Knowledge graph not enabled</div>'; return; }
+    const stats = await r.json();
+    document.getElementById('graph-stats-footer').textContent = `${stats.entities} entities, ${stats.relations} relations`;
+
+    // Fetch entities
+    const er = await fetch(`${BASE}/api/v1/entities${filter ? `?q=${encodeURIComponent(filter)}` : '?limit=100'}`);
+    if (!er.ok) { container.innerHTML = '<div class="error">Failed to load entities</div>'; return; }
+    const edata = await er.json();
+    const entities = edata.entities || edata || [];
+
+    if (entities.length === 0) {
+      container.innerHTML = '<div class="error">No entities found</div>';
+      return;
+    }
+
+    // Build nodes and links
+    const nodes = entities.map(e => ({
+      id: e.name, name: e.name, type: e.entity_type || 'concept', count: e.chunks || 0
+    }));
+    const links = [];
+
+    // Fetch relations for each entity
+    const batchSize = 30;
+    for (let i = 0; i < Math.min(nodes.length, batchSize); i++) {
+      try {
+        const relR = await fetch(`${BASE}/api/v1/graph/entity/${encodeURIComponent(nodes[i].name)}`);
+        if (!relR.ok) continue;
+        const relData = await relR.json();
+        (relData.relations || []).forEach(rel => {
+          const src = relData.entity.name;
+          const tgtNode = nodes.find(n => n.id === (rel.source === src ? relData.entity.name === src ? nodes.find(nn => nn.id === rel.source)?.id : nodes.find(nn => nn.id === rel.target)?.id : ''));
+          // simplified: try to match
+          const targets = rel.source === src ? rel.target : rel.source;
+          const tgtName = (typeof targets === 'number') ? 
+            entities.find(e => e.id === targets)?.name || `#${targets}` : targets;
+          if (nodes.find(n => n.id === tgtName) && tgtName !== src) {
+            links.push({source: src, target: tgtName, type: rel.relation_type || 'related'});
+          }
+        });
+      } catch(e) {}
+    }
+
+    container.innerHTML = '';
+    const svg = d3.select('#graph-container').append('svg');
+    const width = container.clientWidth || 800;
+    const height = 600;
+
+    const simulation = d3.forceSimulation(nodes)
+      .force('link', d3.forceLink(links).id(d => d.id).distance(80))
+      .force('charge', d3.forceManyBody().strength(-150))
+      .force('center', d3.forceCenter(width/2, height/2))
+      .force('collision', d3.forceCollide().radius(20));
+
+    const link = svg.append('g')
+      .selectAll('line')
+      .data(links)
+      .join('line')
+      .attr('stroke', '#30363d')
+      .attr('stroke-width', 1)
+      .attr('stroke-opacity', 0.4);
+
+    const node = svg.append('g')
+      .selectAll('g')
+      .data(nodes)
+      .join('g')
+      .style('cursor', 'pointer')
+      .on('click', (e, d) => { window.location.href = `#entity-${d.name}`; })
+      .call(d3.drag()
+        .on('start', (e,d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+        .on('drag', (e,d) => { d.fx = e.x; d.fy = e.y; })
+        .on('end', (e,d) => { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+    node.append('circle')
+      .attr('r', d => 5 + Math.sqrt(d.count || 1) * 3)
+      .attr('fill', d => TYPE_COLORS[d.type] || '#8b949e')
+      .attr('stroke', '#0d1117')
+      .attr('stroke-width', 1.5);
+
+    node.append('text')
+      .text(d => d.name.length > 20 ? d.name.slice(0,18)+'..' : d.name)
+      .attr('x', 10)
+      .attr('y', 4)
+      .attr('fill', '#c9d1d9')
+      .attr('font-size', '11px');
+
+    simulation.on('tick', () => {
+      link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+      node.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
+
+    // Zoom
+    svg.call(d3.zoom()
+      .extent([[0,0],[width,height]])
+      .scaleExtent([0.1,8])
+      .on('zoom', (e) => svg.selectAll('g').attr('transform', e.transform)));
+  } catch(e) {
+    container.innerHTML = `<div class="error">${e.message}</div>`;
+  }
+}
+
+// Stats
+async function loadStats() {
+  try {
+    const r = await fetch(`${BASE}/api/v1/status`);
+    const data = await r.json();
+    const el = document.getElementById('stats-container');
+    el.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card"><div class="value">${data.wings}</div><div class="label">Wings</div></div>
+        <div class="stat-card"><div class="value">${data.rooms}</div><div class="label">Rooms</div></div>
+        <div class="stat-card"><div class="value">${data.pages}</div><div class="label">Pages</div></div>
+        <div class="stat-card"><div class="value">${data.chunks}</div><div class="label">Chunks</div></div>
+        <div class="stat-card"><div class="value">${data.embedded_chunks}</div><div class="label">Embedded</div></div>
+      </div>
+    `;
+    if (data.graph) {
+      el.innerHTML += `
+        <div class="stats-grid" style="margin-top:12px">
+          <div class="stat-card"><div class="value">${data.graph.entities}</div><div class="label">Entities</div></div>
+          <div class="stat-card"><div class="value">${data.graph.relations}</div><div class="label">Relations</div></div>
+          <div class="stat-card"><div class="value">${data.graph.links}</div><div class="label">Entity-Links</div></div>
+        </div>`;
+    }
+  } catch(e) {
+    document.getElementById('stats-container').innerHTML = `<div class="error">${e.message}</div>`;
+  }
+}
+
+// Init
+loadGraphFull();
+</script>
+</body>
+</html>
