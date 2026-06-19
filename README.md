@@ -1,6 +1,6 @@
 # DereInside 🧠🔍
 
-**Know your project from the inside out.**
+> **从内部给予知识 — 名字源自拉丁语 `dare`（给予）→ `dere`，合 `inside` 为 DereInside**
 
 DereInside is a local-first AI knowledge system. It ingests code, docs, conversations, and designs — then surfaces the right context when you need it.
 
