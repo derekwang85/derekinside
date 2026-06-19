@@ -338,10 +338,17 @@ def mine(click_ctx, path, wing, room, mode, pattern, dry_run):
 @click.option("--rerank", is_flag=True, help="Enable LLM reranking")
 @click.option("--kg", "use_kg", is_flag=True, help="Enable graph propagation")
 @click.option("--recent", is_flag=True, help="Enable temporal boost")
+@click.option("--before", default=None, help="Only chunks created before this ISO datetime")
+@click.option("--after", default=None, help="Only chunks created after this ISO datetime")
 @click.option("--json", "json_out", is_flag=True, help="Output as JSON")
 @click.pass_context
-def search(click_ctx, query, wing, room, top_k, rerank, use_kg, recent, json_out):
-    """Semantic search across indexed knowledge."""
+def search(click_ctx, query, wing, room, top_k, rerank, use_kg, recent, before, after, json_out):
+    """Semantic search across indexed knowledge.
+
+    Examples:
+        derekinside search "KYC" --before "2026-06-18T00:00:00"
+        derekinside search "order" --after "2026-06-01" --before "2026-06-15"
+    """
     dere = _get_ctx(click_ctx)
     t0 = time.time()
 
@@ -357,6 +364,8 @@ def search(click_ctx, query, wing, room, top_k, rerank, use_kg, recent, json_out
         recent_days=dere.cfg.search.temporal_boost.recent_days,
         recent_weight=dere.cfg.search.temporal_boost.recent_weight,
         rerank=rerank or dere.cfg.search.rerank.enabled,
+        before=before,
+        after=after,
     )
 
     resp = dere.searcher.search(req)

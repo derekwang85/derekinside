@@ -387,20 +387,45 @@ class VectorStore:
 
     # ── Search ─────────────────────────────────────────────────
 
+    @staticmethod
+    def _build_time_filter(
+        after: Optional[str] = None,
+        before: Optional[str] = None,
+    ) -> tuple[str, list]:
+        """Build SQL WHERE clause for temporal filtering (time travel)."""
+        where = ""
+        params: list = []
+        if before:
+            where += " AND p.created_at < %s"
+            params.append(before)
+        if after:
+            where += " AND p.created_at >= %s"
+            params.append(after)
+        return where, params
+
     def search_vector(
         self,
         embedding: list[float],
         top_k: int = 20,
         wing: Optional[str] = None,
         room: Optional[str] = None,
+        before: Optional[str] = None,
+        after: Optional[str] = None,
     ) -> list[SearchResult]:
-        """Pure vector (cosine) search."""
+        """Pure vector (cosine) search.
+
+        before/after: ISO datetime strings for time travel queries.
+        """
         embed_str = "[" + ",".join(f"{v:.8f}" for v in embedding) + "]"
         where = ""
         params: list = []
         if wing:
             where = " AND w.name = %s"
             params.append(wing)
+
+        time_where, time_params = self._build_time_filter(before, after)
+        where += time_where
+        params.extend(time_params)
         if room:
             where += " AND r.name = %s"
             params.append(room)
@@ -430,13 +455,21 @@ class VectorStore:
         top_k: int = 20,
         wing: Optional[str] = None,
         room: Optional[str] = None,
+        before: Optional[str] = None,
+        after: Optional[str] = None,
     ) -> list[SearchResult]:
-        """Full-text search via tsvector."""
+        """Full-text search via tsvector.
+
+        before/after: ISO datetime strings for time travel queries.
+        """
         where = ""
         params: list = []
         if wing:
             where += " AND w.name = %s"
-            params.append(wing)
+
+        time_where, time_params = self._build_time_filter(before, after)
+        where += time_where
+        params.extend(time_params)
         if room:
             where += " AND r.name = %s"
             params.append(room)
@@ -470,17 +503,20 @@ class VectorStore:
         temporal_boost: bool = False,
         recent_days: int = 7,
         recent_weight: float = 1.5,
+        before: Optional[str] = None,
+        after: Optional[str] = None,
     ) -> list[SearchResult]:
         """
         Hybrid search: vector + keyword (RRF fusion), optional temporal boost.
 
         RRF: score = 1/(k + rank_vector) + 1/(k + rank_keyword)
         Temporal boost: if created_at within recent_days, multiply score by recent_weight
+        before/after: ISO datetime strings for time travel queries.
         """
         k = 60  # RRF constant
 
-        vec_results = self.search_vector(embedding, top_k * 2, wing, room)
-        kw_results = self.search_keyword(query, top_k * 2, wing, room)
+        vec_results = self.search_vector(embedding, top_k * 2, wing, room, before, after)
+        kw_results = self.search_keyword(query, top_k * 2, wing, room, before, after)
 
         # Build rank maps {chunk_id: rank}
         vec_ranks = {r.chunk_id: i + 1 for i, r in enumerate(vec_results)}
