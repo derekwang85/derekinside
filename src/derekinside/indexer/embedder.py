@@ -1,5 +1,6 @@
+# DEPRECATED — Use Engine instead. Will be removed after migration.
 """
-derekinside — Embedding via Ollama (bge-m3).
+derekinside — Embedding via Ollama (bge-m3). [DEPRECATED]
 
 Generates vector embeddings for text chunks.
 Supports batching for efficiency.

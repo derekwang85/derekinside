@@ -8,21 +8,30 @@ from __future__ import annotations
 
 import json as _json
 import logging
+
+logger = logging.getLogger(__name__)
 import os
 import time
 from pathlib import Path
 
 import click
+from pathlib import Path
 
 from derekinside.config import load_config
 from derekinside.storage.pgvector import VectorStore
 from derekinside.storage.graph import KnowledgeGraph
-from derekinside.indexer.embedder import Embedder
 from derekinside.indexer.chunker import chunk_file, detect_strategy
-from derekinside.indexer.entity import EntityExtractor
 from derekinside.search.hybrid import HybridSearch, SearchRequest
-from derekinside.search.reranker import Reranker
 from derekinside.search.propagation import GraphPropagator
+from derekinside.engine.engine import Engine
+from derekinside.indexer.relation_inferrer import RelationInferrer
+from derekinside.indexer.merge import merge_entity_sets, merge_relation_sets
+from derekinside.indexer.entity_resolver import EntityResolver
+from derekinside.indexer.graph_pruner import GraphPruner
+from derekinside.storage.subgraph import build_subgraph
+from derekinside.indexer.fusion import EntityFusion
+from derekinside.indexer.consensus import ConsensusEngine
+from derekinside.indexer.enricher import EntityEnricher
 
 # ── Logging ────────────────────────────────────────────────────
 
@@ -55,22 +64,6 @@ class DereContext:
             schema=self.cfg.database.schema,
         )
         self.graph = KnowledgeGraph(self.store)
-        self.embedder = Embedder(
-            url=self.cfg.embedding.url,
-            model=self.cfg.embedding.model,
-            dimensions=self.cfg.embedding.dimensions,
-        )
-        self.extractor = EntityExtractor(
-            url="http://localhost:11434/api/generate",
-            model=self.cfg.knowledge_graph.extraction_model,
-            enabled=self.cfg.knowledge_graph.enabled,
-            use_llm=False,  # toggled by graph build --llm
-        )
-        self.reranker = Reranker(
-            url="http://localhost:11434/api/generate",
-            model=self.cfg.search.rerank.model,
-            enabled=self.cfg.search.rerank.enabled,
-        )
         self.propagator = GraphPropagator(
             graph=self.graph,
             enabled=self.cfg.knowledge_graph.enabled,
@@ -79,12 +72,16 @@ class DereContext:
             store=self.store,
             config=self.cfg.storage,
         )
+        # Engine — unified model registry + pipeline resolver + profiler
+        # Build model config from the flat config structure
+        self.engine = Engine(self.cfg.to_dict())
 
     def connect(self):
         self.store.connect()
         self.store.ensure_schema()
         if self.cfg.knowledge_graph.enabled:
             self.graph.ensure_schema()
+        self.engine.start()
 
 
 # ── CLI Group ──────────────────────────────────────────────────
@@ -300,7 +297,7 @@ def mine(click_ctx, path, wing, room, mode, pattern, dry_run):
             )
 
             texts = [c.text for c in chunks]
-            embeddings = dere.embedder.embed_batch(texts)
+            embeddings = dere.engine.embed_batch(texts)
 
             batch_data = []
             for ci, (chunk, emb) in enumerate(zip(chunks, embeddings)):
@@ -353,7 +350,7 @@ def search(click_ctx, query, wing, room, top_k, rerank, use_kg, recent, before, 
     dere = _get_ctx(click_ctx)
     t0 = time.time()
 
-    query_embedding = dere.embedder.embed(query)
+    query_embedding = dere.engine.embed(query)
 
     req = SearchRequest(
         query=query,
@@ -372,7 +369,7 @@ def search(click_ctx, query, wing, room, top_k, rerank, use_kg, recent, before, 
     resp = dere.searcher.search(req)
 
     if req.rerank:
-        resp.results = dere.reranker.rerank(query, resp.results, top_k)
+        resp.results = dere.engine.rerank(query, [r.text for r in resp.results])
 
     # Graph propagation
     use_kg = use_kg or dere.cfg.knowledge_graph.enabled
@@ -421,7 +418,7 @@ def wake(click_ctx, wing, hours):
 
     req = SearchRequest(
         query="wake context",
-        embedding=dere.embedder.embed("recent changes updates modifications"),
+        embedding=dere.engine.embed("recent changes updates modifications"),
         top_k=10,
         wing=wing,
         temporal_boost=True,
@@ -544,22 +541,121 @@ def graph_search(click_ctx, query, entity_type, limit):
         click.echo(f"  {e.name} ({e.entity_type}) — {link_count} chunks")
 
 
+@graph.command(name="subgraph")
+@click.argument("entity")
+@click.option("--depth", default=2, type=int, help="Max traversal depth")
+@click.option("--ascii", is_flag=True, help="Output as ASCII tree")
+@click.pass_context
+def graph_subgraph(click_ctx, entity, depth, ascii):
+    """Show subgraph centered on an entity."""
+    dere = _get_ctx(click_ctx)
+    sg = build_subgraph(dere.graph, entity, max_depth=depth)
+
+    if sg is None:
+        click.echo(f"Entity '{entity}' not found.")
+        # Try search
+        matches = dere.graph.search_entities(entity, limit=5)
+        if matches:
+            click.echo("Did you mean:")
+            for m in matches:
+                click.echo(f"  {m.name} ({m.entity_type})")
+        return
+
+    if ascii:
+        click.echo(sg.to_ascii())
+    else:
+        import json
+        click.echo(json.dumps(sg.to_dict(), ensure_ascii=False, indent=2))
+
+
+@graph.command(name="consensus")
+@click.option("--sample", default=50, type=int, help="Edge entities to re-examine")
+@click.option("--dry-run", is_flag=True, default=True, help="Preview only (default)")
+@click.pass_context
+def graph_consensus(click_ctx, sample, dry_run):
+    """Cross-validate edge entities across extraction modes."""
+    dere = _get_ctx(click_ctx)
+    ce = ConsensusEngine(dere.engine, dere.graph)
+    ce.ensure_schema()
+    result = ce.learn_from_graph(sample_count=sample, dry_run=dry_run)
+    confirmed = sum(1 for v in result.verdicts if v.status == "confirmed")
+    uncertain = sum(1 for v in result.verdicts if v.status == "uncertain")
+    rejected = sum(1 for v in result.verdicts if v.status == "rejected")
+    click.echo(f"Entities evaluated: {len(result.verdicts)}")
+    click.echo(f"  Confirmed:  {confirmed}")
+    click.echo(f"  Uncertain:  {uncertain}")
+    click.echo(f"  Rejected:   {rejected}")
+    click.echo(f"  Time:       {result.runtime_ms:.0f}ms")
+    if not dry_run:
+        click.echo("  (Learning table updated)")
+
+
+@graph.command(name="fuse")
+@click.option("--dry-run", is_flag=True, default=True, help="Preview only (default)")
+@click.pass_context
+def graph_fuse(click_ctx, dry_run):
+    """Merge duplicate entities across wings."""
+    dere = _get_ctx(click_ctx)
+    fusion = EntityFusion(dere.graph)
+    report = fusion.fuse(dry_run=dry_run)
+    click.echo(f"Duplicates: {report.total_duplicates}")
+    click.echo(f"Merged:     {report.merged}")
+    click.echo(f"Deleted:    {report.deleted}")
+    click.echo(f"Rels:       {report.relations_transferred}")
+    click.echo(f"Chunks:     {report.chunks_relinked}")
+    if report.errors:
+        click.echo(f"Errors:     {report.errors}")
+    if report.details and len(report.details) <= 20:
+        for d in report.details:
+            click.echo(f"  {d}")
+    elif report.details:
+        click.echo(f"  ... {len(report.details)} total details")
+
+
+@graph.command(name="enrich")
+@click.option("--limit", default=50, type=int, help="Max entities to enrich")
+@click.option("--model", default="qwen2.5-coder:7b", help="LLM model for description generation")
+@click.pass_context
+def graph_enrich(click_ctx, limit, model):
+    """Generate descriptions for entities using offline LLM."""
+    dere = _get_ctx(click_ctx)
+    enricher = EntityEnricher(dere.graph, model_name=model)
+    click.echo(f"Enriching up to {limit} entities without descriptions...")
+    result = enricher.enrich_batch(limit=limit)
+    click.echo(f"Done: {result['enriched']} enriched, {result['failed']} failed, out of {result['total']}")
+
+
 @graph.command(name="build")
 @click.option("--batch", default=20, type=int, help="Chunks per batch")
 @click.option("--max-chunks", default=0, type=int, help="Max chunks to process (0=all)")
-@click.option("--llm", is_flag=True, help="Enable LLM-based entity extraction (qwen1.5b, ~5s/chunk)")
+@click.option("--llm", is_flag=True, help="[Deprecated] Enable LLM extraction (use --mode instead)")
+@click.option("--mode", default="", type=click.Choice(["", "regex", "1.5b", "7b", "hybrid-1.5b", "hybrid-7b"]),
+              help="Entity extraction mode (overrides config)")
+@click.option("--list-modes", is_flag=True, help="List available extraction modes")
 @click.pass_context
-def graph_build(click_ctx, batch, max_chunks, llm):
+def graph_build(click_ctx, batch, max_chunks, llm, mode, list_modes):
     """Build knowledge graph: extract entities from all chunks."""
+    from derekinside.indexer.entity import _EXTRACTION_MODES
+
+    if list_modes:
+        click.echo("📋 Available entity extraction modes:")
+        for mname, mdesc in _EXTRACTION_MODES.items():
+            click.echo(f"  {mname:15s} — {mdesc}")
+        return
+
     dere = _get_ctx(click_ctx)
-    if llm:
-        dere.extractor = EntityExtractor(
-            url="http://localhost:11434/api/generate",
-            model="qwen2.5-coder:1.5b",
-            enabled=True,
-            use_llm=True,
-        )
-        click.echo("🧠 LLM extraction enabled (qwen2.5-coder:1.5b, ~5s/chunk)")
+
+    # Resolve mode: CLI --mode overrides config
+    effective_mode = mode or dere.cfg.knowledge_graph.entity_extraction.mode
+    if llm and not effective_mode:
+        effective_mode = "hybrid-1.5b"  # --llm backward compat
+
+    # Mode selection is now handled by PipelineResolver
+    # CLI --mode flag overrides the pipeline strategy
+    if effective_mode and effective_mode != dere.cfg.pipeline.get('extract', {}).get('mode', ''):
+        logger.info("CLI mode override: %s", effective_mode)
+
+    click.echo(f"🧠 Entity extraction mode: {effective_mode}")
     click.echo("🏗️  Building knowledge graph — extracting entities from chunks...")
 
     # Count available chunks
@@ -597,10 +693,92 @@ def graph_build(click_ctx, batch, max_chunks, llm):
             if not rows:
                 break
 
+        inferrer = RelationInferrer()
+        resolver = EntityResolver()
+
         for chunk_id, chunk_text in rows:
             processed += 1
             try:
-                result = dere.extractor.extract(chunk_text)
+                # Step 1: LLM/regex entity extraction
+                result = dere.engine.extract(chunk_text)
+
+                # Step 2: Get file extension for structured inference
+                ext = ""
+                with dere.store.cursor() as cur:
+                    cur.execute(
+                        "SELECT p.source_path FROM pages p "
+                        "JOIN chunks c ON c.page_id = p.id "
+                        "WHERE c.id = %s", (chunk_id,)
+                    )
+                    page_row = cur.fetchone()
+                    source_path = page_row[0] if page_row else ""
+                    ext = Path(source_path).suffix if source_path else ""
+
+                # Step 3: Entity extraction result
+                entities = []
+                if hasattr(result, 'entities'):
+                    entities = result.entities
+                elif isinstance(result, dict):
+                    entities = result.get('entities', [])
+
+                # Step 4: Resolve entity names (dedup)
+                resolved_map = {}
+                for ent in entities:
+                    name = ent.name if hasattr(ent, 'name') else ent.get('name', '')
+                    if name:
+                        resolved_map[name] = resolver.resolve(name)
+
+                # Step 5: Create entities and build name->id map
+                entity_name_map = {}
+                for ent in entities:
+                    name = ent.name if hasattr(ent, 'name') else ent.get('name', '')
+                    if not name:
+                        continue
+                    etype = ent.entity_type if hasattr(ent, 'entity_type') else ent.get('type', 'concept')
+                    canonical, _ = resolved_map.get(name, (name, False))
+                    eid = dere.graph.get_or_create_entity(canonical, etype)
+                    entity_name_map[name] = eid
+                    entity_count += 1
+
+                # Step 6: Link entities to chunk
+                for eid in set(entity_name_map.values()):
+                    dere.graph.link_entity_to_chunk(eid, chunk_id, relevance=1.0)
+                    link_count += 1
+
+                # Step 7: Relations from LLM extraction
+                relations = []
+                if hasattr(result, 'relations'):
+                    relations = result.relations
+                elif isinstance(result, dict):
+                    relations = result.get('relations', [])
+
+                for rel in relations:
+                    source = rel.source if hasattr(rel, 'source') else rel.get('source', '')
+                    target = rel.target if hasattr(rel, 'target') else rel.get('target', '')
+                    rtype = rel.relation_type if hasattr(rel, 'relation_type') else rel.get('type', 'related')
+                    src_eid = entity_name_map.get(source)
+                    tgt_eid = entity_name_map.get(target)
+                    if src_eid and tgt_eid:
+                        dere.graph.add_relation(src_eid, tgt_eid, rtype, 1.0)
+                        relation_count += 1
+
+                # Step 8: Structured relation inference
+                if ext:
+                    inferred = inferrer.infer(chunk_text, chunk_id, ext)
+                    for rel in inferred:
+                        src_eid = entity_name_map.get(rel.source)
+                        tgt_eid = entity_name_map.get(rel.target)
+                        if rel.source and not src_eid:
+                            src_eid = dere.graph.get_or_create_entity(rel.source, 'class')
+                            entity_name_map[rel.source] = src_eid
+                            entity_count += 1
+                        if rel.target and not tgt_eid:
+                            tgt_eid = dere.graph.get_or_create_entity(rel.target, 'module')
+                            entity_name_map[rel.target] = tgt_eid
+                            entity_count += 1
+                        if src_eid and tgt_eid:
+                            dere.graph.add_relation(src_eid, tgt_eid, rel.relation_type, rel.weight)
+                            relation_count += 1
                 if result.is_empty():
                     continue
 

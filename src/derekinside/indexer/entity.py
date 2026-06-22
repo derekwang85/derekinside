@@ -242,58 +242,128 @@ def _is_valid_entity_name(name: str) -> bool:
 # ── Hybrid Extractor ──────────────────────────────────────────
 
 
+# ── Mode Configuration ────────────────────────────────────────
+
+_EXTRACTION_MODES = {
+    "regex": "Pure regex, ~5ms/chunk, code entities only",
+    "1.5b": "LLM-only with qwen2.5-coder:1.5b, ~2.6s/chunk, high recall",
+    "7b": "LLM-only with qwen2.5-coder:7b, ~6.6s/chunk, high precision",
+    "hybrid-1.5b": "Regex + 1.5B concepts, best balance on CPU",
+    "hybrid-7b": "Regex + 7B concepts, highest precision",
+}
+
+_VALID_MODES = set(_EXTRACTION_MODES.keys())
+
+
 class EntityExtractor:
     """
-    Hybrid entity extractor.
+    5-mode configurable entity extractor.
 
-    1. Regex pass: fast extraction of class, function, module, API entities
-    2. Optional LLM pass: extracts domain concepts (only for non-code-rich chunks)
-
-    Built for speed: ~0.01s per chunk (regex) or ~5s (LLM with 1.5B model).
+    Modes:
+      regex         — Pure regex, ~5ms/chunk
+      1.5b          — LLM-only with qwen2.5-coder:1.5b, ~2.6s/chunk
+      7b            — LLM-only with qwen2.5-coder:7b, ~6.6s/chunk
+      hybrid-1.5b   — Regex + 1.5B concepts (default for CPU)
+      hybrid-7b     — Regex + 7B concepts (default)
     """
 
     def __init__(
         self,
         url: str = "http://localhost:11434/api/generate",
-        model: str = "qwen2.5-coder:1.5b",
+        model: str = "qwen2.5-coder:7b",
         enabled: bool = False,
         use_llm: bool = False,
         llm_min_chars: int = 100,
+        mode: str = "",
     ):
         self._url = url
         self._model = model
         self._enabled = enabled
-        self._use_llm = use_llm  # LLM pass for domain concepts (slow)
         self._llm_min_chars = llm_min_chars
-        self._client = httpx.Client(timeout=60.0) if enabled else None
+
+        # Resolve mode: if mode is explicitly set, use it; else fall back
+        # to use_llm/model for backward compatibility
+        if mode and mode in _VALID_MODES:
+            self._mode = mode
+        elif use_llm and "7b" in model.lower():
+            self._mode = "hybrid-7b"
+        elif use_llm:
+            self._mode = "hybrid-1.5b"
+        else:
+            self._mode = "regex"
+
+        self._client = httpx.Client(timeout=120.0) if enabled else None
 
     @property
     def enabled(self) -> bool:
         return self._enabled
 
+    @property
+    def mode(self) -> str:
+        return self._mode
+
+    @classmethod
+    def list_modes(cls) -> dict:
+        return dict(_EXTRACTION_MODES)
+
     def extract(self, text: str) -> ExtractionResult:
-        """Extract entities using regex + optional LLM refinement."""
+        """Extract entities using the configured mode."""
         if not self._enabled or not text.strip():
             return ExtractionResult()
 
-        result = ExtractionResult()
+        if self._mode == "regex":
+            return self._extract_regex(text)
+        elif self._mode == "1.5b":
+            return self._extract_llm_only(text, "qwen2.5-coder:1.5b")
+        elif self._mode == "7b":
+            return self._extract_llm_only(text, "qwen2.5-coder:7b")
+        elif self._mode == "hybrid-1.5b":
+            return self._extract_hybrid(text, "qwen2.5-coder:1.5b")
+        elif self._mode == "hybrid-7b":
+            return self._extract_hybrid(text, "qwen2.5-coder:7b")
+        else:
+            return ExtractionResult()
 
-        # Step 1: Fast regex extraction (always runs)
+    def _extract_regex(self, text: str) -> ExtractionResult:
+        """Mode: regex only."""
+        result = ExtractionResult()
         regex_result = extract_regex(text)
         result.merge(regex_result)
+        import_result = extract_imports(text)
+        result.merge(import_result)
+        return result
 
+    def _extract_llm_only(self, text: str, model: str) -> ExtractionResult:
+        """Mode: LLM only (1.5b or 7b)."""
+        if len(text) < self._llm_min_chars or not self._client:
+            return ExtractionResult()
+        return self._extract_llm(text, model)
+
+    def _extract_hybrid(self, text: str, model: str) -> ExtractionResult:
+        """Mode: hybrid (regex + LLM concepts)."""
+        result = ExtractionResult()
+
+        # Step 1: Regex for code entities
+        regex_result = extract_regex(text)
+        result.merge(regex_result)
         import_result = extract_imports(text)
         result.merge(import_result)
 
-        # Step 2: Optional LLM pass for domain concepts
-        if self._use_llm and len(text) >= self._llm_min_chars:
-            llm_result = self._extract_llm(text)
-            # Only add entities not already found by regex
-            result.merge(llm_result)
+        # Track what regex found
+        regex_names = {e.name for e in result.entities}
+
+        # Step 2: LLM for concepts not found by regex
+        if len(text) >= self._llm_min_chars and self._client:
+            llm_result = self._extract_llm(text, model)
+            # Only add concept/api entities not found by regex
+            for e in llm_result.entities:
+                if e.name not in regex_names and e.entity_type in ("concept", "api"):
+                    result.entities.append(e)
+                    regex_names.add(e.name)
 
         return result
 
-    def _extract_llm(self, text: str) -> ExtractionResult:
+    def _extract_llm(self, text: str, model: str) -> ExtractionResult:
         """LLM-based entity extraction (domain concepts)."""
         if not self._client:
             return ExtractionResult()
@@ -304,7 +374,7 @@ class EntityExtractor:
             resp = self._client.post(
                 self._url,
                 json={
-                    "model": self._model,
+                    "model": model,
                     "prompt": prompt,
                     "stream": False,
                     "options": {

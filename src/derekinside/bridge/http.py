@@ -24,6 +24,7 @@ except ImportError:
 from derekinside.bridge.auth import Auth
 from derekinside.storage.pgvector import VectorStore
 from derekinside.storage.graph import KnowledgeGraph
+from derekinside.storage.subgraph import build_subgraph
 from derekinside.indexer.embedder import Embedder
 from derekinside.indexer.entity import EntityExtractor
 from derekinside.search.hybrid import HybridSearch, SearchRequest
@@ -280,6 +281,25 @@ def create_app(
                 "chunks": len(kg.get_chunks_for_entity(e.id, limit=1000)),
             })
         return {"entities": result, "total": len(result)}
+
+    @app.get("/api/v1/graph/subgraph")
+    async def api_subgraph(request: Request):
+        _check_auth(request)
+        if not kg:
+            return JSONResponse({"error": "Knowledge graph disabled"}, status_code=400)
+        entity = request.query_params.get("entity", "")
+        depth = int(request.query_params.get("depth", 2))
+        if not entity:
+            return JSONResponse({"error": "Missing 'entity' param"}, status_code=400)
+        sg = build_subgraph(kg, entity, max_depth=depth)
+        if sg is None:
+            matches = kg.search_entities(entity, limit=5)
+            return JSONResponse({
+                "error": f"Entity '{entity}' not found",
+                "suggestions": [{"name": m.name, "type": m.entity_type} for m in matches],
+            }, status_code=404)
+        return JSONResponse(sg.to_dict())
+
 
     @app.post("/api/v1/mine")
     async def api_mine(request: Request):

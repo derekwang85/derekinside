@@ -63,9 +63,27 @@ class SearchConfig:
 
 
 @dataclass
+class EntityExtractionConfig:
+    """
+    Entity extraction mode configuration.
+
+    Modes:
+      regex         — Pure regex (fast, ~5ms/chunk, code entities only)
+      1.5b          — LLM-only with qwen2.5-coder:1.5b (~2.6s/chunk, high recall)
+      7b            — LLM-only with qwen2.5-coder:7b (~6.6s/chunk, high precision)
+      hybrid-1.5b   — Regex + 1.5B concepts (best balance on CPU)
+      hybrid-7b     — Regex + 7B concepts (highest precision)
+    """
+    mode: str = "hybrid-7b"
+    ollama_url: str = "http://localhost:11434/api/generate"
+    llm_min_chars: int = 100
+
+
+@dataclass
 class KnowledgeGraphConfig:
     enabled: bool = False
     extraction_model: str = "qwen2.5-coder:7b"
+    entity_extraction: EntityExtractionConfig = field(default_factory=EntityExtractionConfig)
 
 
 @dataclass
@@ -103,6 +121,12 @@ class AppConfig:
     mcp_server: MCPConfig = field(default_factory=MCPConfig)
     sources: list[SourceConfig] = field(default_factory=list)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    pipeline: dict = field(default_factory=dict)
+    _raw: dict = field(default_factory=dict)  # full raw config dict
+
+    def to_dict(self) -> dict:
+        """Return full config as a dict (for Engine initialization)."""
+        return self._raw or {}
 
 
 def find_config() -> Path:
@@ -166,12 +190,15 @@ def load_config(path: Optional[Path] = None) -> AppConfig:
 
     # Knowledge Graph
     kg = raw.get("knowledge_graph", {})
+    ee_raw = kg.get("entity_extraction", {})
     cfg.knowledge_graph = KnowledgeGraphConfig(
-        **{
-            k: v
-            for k, v in kg.items()
-            if k in KnowledgeGraphConfig.__dataclass_fields__
-        }
+        enabled=kg.get("enabled", False),
+        extraction_model=kg.get("extraction_model", "qwen2.5-coder:7b"),
+        entity_extraction=EntityExtractionConfig(
+            mode=ee_raw.get("mode", "hybrid-7b"),
+            ollama_url=ee_raw.get("ollama_url", "http://localhost:11434/api/generate"),
+            llm_min_chars=ee_raw.get("llm_min_chars", 100),
+        ),
     )
 
     # MCP
@@ -200,5 +227,11 @@ def load_config(path: Optional[Path] = None) -> AppConfig:
     cfg.logging = LoggingConfig(
         **{k: v for k, v in log.items() if k in LoggingConfig.__dataclass_fields__}
     )
+
+    # Pipeline (new)
+    cfg.pipeline = raw.get("pipeline", {})
+
+    # Store raw dict for Engine initialization
+    cfg._raw = raw
 
     return cfg

@@ -4,11 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "derekinside"
-version = "0.1.0"
-description = "Know your project from the inside out — local-first AI knowledge system"
-authors = [{name = "aITMS01", email = "aitms01@derekinside.dev"}]
+version = "0.5.0"
+description = "Local-first AI knowledge system — multi-model entity extraction, knowledge graph, self-learning consensus, constraint-solving pipeline"
+readme = "README.md"
+authors = [
+    {name = "aITMS01", email = "aitms01@derekinside.dev"},
+    {name = "Derek Wang", email = "derek@derekinside.dev"},
+]
 license = {text = "MIT"}
 requires-python = ">=3.10"
+keywords = ["knowledge-graph", "rag", "entity-extraction", "ai-memory", "local-ai", "agent-memory"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: Indexing",
+]
 dependencies = [
     "numpy>=1.24",
     "python-dateutil>=2.8",
@@ -23,6 +40,12 @@ pgvector = ["psycopg[binary]>=3.1"]
 ollama = ["httpx>=0.27"]
 http = ["fastapi>=0.100", "uvicorn>=0.24"]
 dev = ["pytest>=7.0", "pytest-cov>=4.0", "ruff>=0.15"]
+
+[project.urls]
+Homepage = "https://github.com/derekwang85/derekinside"
+Repository = "https://github.com/derekwang85/derekinside"
+Documentation = "https://github.com/derekwang85/derekinside#readme"
+"Bug Tracker" = "https://github.com/derekwang85/derekinside/issues"
 
 [project.scripts]
 derekinside = "derekinside.cli:main"

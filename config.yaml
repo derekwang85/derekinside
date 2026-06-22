@@ -5,33 +5,155 @@ database:
   user: postgres
   password: postgres
   schema: public
-embedding:
-  provider: ollama
-  model: bge-m3
-  dimensions: 1024
-  url: http://localhost:11434/api/embed
+
+# ──── Model Registry ────
+# One entry per model endpoint. auto_profile=true → system auto-detects.
+models:
+  bge-m3:
+    driver: ollama
+    api_model: bge-m3
+    url: http://localhost:11434/api/embed
+    capabilities: [embed]
+    dimensions: 1024
+    device: cpu
+    quality: high
+    speed_tier: medium
+    cost_tier: free
+    intelligence: n/a
+
+  qwen-1.5b:
+    driver: ollama
+    api_model: qwen2.5-coder:1.5b
+    url: http://localhost:11434/api/generate
+    capabilities: [extract, rerank]
+    device: cpu
+    intelligence: medium
+    speed_tier: medium
+    cost_tier: free
+    quality: medium
+
+  qwen-7b:
+    driver: ollama
+    api_model: qwen2.5-coder:7b
+    url: http://localhost:11434/api/generate
+    capabilities: [extract, rerank]
+    device: cpu
+    intelligence: high
+    speed_tier: slow
+    cost_tier: free
+    quality: high
+
+  bge-m3-gpu:
+    driver: vllm
+    api_model: BAAI/bge-m3
+    url: http://localhost:8080/v1/embeddings
+    capabilities: [embed]
+    dimensions: 1024
+    device: cuda:0
+    batch_size: 32
+    quality: high
+    speed_tier: fast
+    cost_tier: free
+    intelligence: n/a
+
+  gpt-4o-mini:
+    driver: openai
+    api_model: gpt-4o-mini
+    api_key: ${OPENAI_API_KEY}
+    capabilities: [extract, rerank]
+    device: cloud
+    intelligence: very_high
+    speed_tier: fast
+    cost_tier: paid_low
+    quality: very_high
+
+  text-embedding-3:
+    driver: openai
+    api_model: text-embedding-3-small
+    api_key: ${OPENAI_API_KEY}
+    dimensions: 1536
+    capabilities: [embed]
+    device: cloud
+    cost_tier: paid_low
+    quality: high
+
+# ──── Pipeline ────
+# Constraint-based model selection per capability.
+pipeline:
+  embed:
+    requires:
+      max_cost: free
+      max_latency_ms: 200
+    objective: optimize_speed
+    candidates:
+      - bge-m3-gpu
+      - bge-m3
+      - text-embedding-3
+
+  extract:
+    requires:
+      min_intelligence: low
+      max_cost: free
+      max_latency_ms: 10000
+    objective: optimize_quality
+    mode: hybrid-7b
+    candidates:
+      - qwen-7b
+      - qwen-1.5b
+
+  extract_deep:
+    requires:
+      min_intelligence: high
+      max_cost: paid_low
+      max_latency_ms: 60000
+    objective: optimize_quality
+    candidates:
+      - qwen-7b
+      - gpt-4o-mini
+
+  rerank:
+    requires:
+      min_intelligence: medium
+      max_cost: paid_low
+      max_latency_ms: 3000
+    objective: optimize_speed
+    candidates:
+      - qwen-1.5b
+      - gpt-4o-mini
+
+  generate:
+    requires:
+      min_intelligence: medium
+      max_cost: paid_low
+    objective: optimize_quality
+    candidates:
+      - qwen-7b
+      - gpt-4o-mini
+
+# ──── Search Enhancements ────
+search:
+  temporal_boost:
+    enabled: true
+    recent_days: 7
+    recent_weight: 1.5
+  stale_days: 90
+  stale_penalty: 0.5
+
+# ──── Legacy Config (kept for backward compat, will migrate) ────
 storage:
   provider: pgvector
   hybrid_search: true
   base_path: /media/cbnb/_opdata/derekinside
   media_path: /media/cbnb/_opdata/derekinside/media
   backup_path: /media/cbnb/_opdata/derekinside/backups
-search:
-  top_k: 20
-  rerank:
-    enabled: false
-    provider: ollama
-    model: qwen2.5-coder:7b
-  temporal_boost:
-    enabled: false
-    recent_days: 7
-    recent_weight: 1.5
+
 knowledge_graph:
   enabled: true
-  extraction_model: qwen2.5-coder:7b
+
 mcp_server:
   enabled: true
   port: 18892
+
 sources:
 - name: tradeoms-code
   type: git
@@ -44,7 +166,6 @@ sources:
   - '*.js'
   - '*.ts'
   - '*.xml'
-  - '*.yml'
   - '*.sql'
   ignore:
   - node_modules/**
@@ -77,6 +198,7 @@ sources:
   ignore:
   - node_modules/**
   - skills/**/scripts/**
+
 logging:
   level: info
   file: ~/.derekinside/derekinside.log
