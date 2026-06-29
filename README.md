@@ -1,7 +1,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/status-alpha-orange" alt="Alpha">
+  <img src="https://img.shields.io/badge/status-beta-green" alt="Beta">
   <img src="https://img.shields.io/github/stars/derekwang85/derekinside" alt="Stars">
   <img src="https://img.shields.io/github/last-commit/derekwang85/derekinside" alt="Last Commit">
 </p>
@@ -202,6 +202,30 @@ Result: **2,467 chunks reduced from 5h26m to ~1.5h** with weighted F1 improvemen
 
 ---
 
+## 🏭 Production Profile (as of June 2026)
+
+DereInside is running in production powering the aITMS01 engineering workflow:
+
+| Metric | Value | Growth |
+|:-------|:-----:|:------:|
+| **Wings** (knowledge domains) | **21** | +50% from launch |
+| **Rooms** (sub-domains) | **54** | +20% |
+| **Pages** (ingested) | **599** | +8% |
+| **Chunks** (indexed) | **2,931** | +11%, 100% embedded |
+| **Knowledge Graph Entities** | **5,485** | **7.9x** |
+| **Knowledge Graph Links** | **10,817** | **7.6x** |
+
+The knowledge graph explosion (7.9x entities, 7.6x links) is the direct result of the Model Registry + constraint-solving pipeline — the system now discovers relationships across code, documents, and conversations that were invisible under the old single-model architecture.
+
+**What this means in practice:**
+- Zero cloud dependency — runs on a single VM with PostgreSQL
+- All embeddings, extractions, and graph operations local
+- API response < 200ms for search queries
+- Full re-index of 2,931 chunks completes in ~1.5h (was 5h26m before smart dispatch)
+- Agent-native: MCP server provides structured context to sub-agents at spawn time
+
+---
+
 ## ⚡ Quick Start
 
 ```bash
@@ -251,6 +275,8 @@ context = session.query("What is the KYC process?")
 | **Phase 4** | 🚧 | Multi-model ensemble + Agent-native context gate |
 | **Phase 5** | 📋 | Web UI dashboard + collaborative annotations |
 | **Phase 6** | 📋 | Fleet learning — share profles across instances |
+| **EverOS Merger** | 📋 | Evaluate EverOS integration (see [RFC-0002](docs/rfcs/0002-everos-merge.md)) |
+| **Fact Logging** | 📋 | Cross-Agent shared memory (see [RFC-0001](docs/rfcs/0001-fact-logging.md)) |
 
 ---
 
