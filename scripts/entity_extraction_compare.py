@@ -64,17 +64,43 @@ _PATTERNS = {
         re.compile(r"(?:module|from)\s+['\"]([\w./-]+)['\"]"),
     ],
     "api": [
-        re.compile(r'@(?:GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping)\(["\']([^"\']+)["\']'),
-        re.compile(r"(?:router\.(?:get|post|put|delete)|app\.(?:get|post|put|delete))\(['\"](/[\w/{}]+)['\"]"),
+        re.compile(
+            r'@(?:GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping)\(["\']([^"\']+)["\']'
+        ),
+        re.compile(
+            r"(?:router\.(?:get|post|put|delete)|app\.(?:get|post|put|delete))\(['\"](/[\w/{}]+)['\"]"
+        ),
     ],
 }
 
 _GENERIC = {
-    "void", "int", "string", "boolean", "long", "double",
-    "true", "false", "null", "this", "return", "if", "else",
-    "for", "while", "class", "function", "import", "export",
-    "default", "extends", "implements", "throws", "new",
-    "type", "default", "extends",
+    "void",
+    "int",
+    "string",
+    "boolean",
+    "long",
+    "double",
+    "true",
+    "false",
+    "null",
+    "this",
+    "return",
+    "if",
+    "else",
+    "for",
+    "while",
+    "class",
+    "function",
+    "import",
+    "export",
+    "default",
+    "extends",
+    "implements",
+    "throws",
+    "new",
+    "type",
+    "default",
+    "extends",
 }
 
 _LLM_PROMPT = """Extract named entities from this text. Types: class, function, module, api, concept.
@@ -123,8 +149,9 @@ def extract_regex(text: str) -> ExtractionResult:
     return result
 
 
-def extract_llm(text: str, model: str, client: httpx.Client,
-                use_combined_prompt: bool = False) -> ExtractionResult:
+def extract_llm(
+    text: str, model: str, client: httpx.Client, use_combined_prompt: bool = False
+) -> ExtractionResult:
     t0 = time.time()
     result = ExtractionResult()
     prompt = _LLM_PROMPT_COMBINED if use_combined_prompt else _LLM_PROMPT
@@ -141,7 +168,7 @@ def extract_llm(text: str, model: str, client: httpx.Client,
         resp.raise_for_status()
         data = resp.json()
         raw = data.get("response", "").strip()
-    except Exception as e:
+    except Exception:
         result.errors = 1
         result.time_ms = (time.time() - t0) * 1000
         return result
@@ -155,7 +182,7 @@ def extract_llm(text: str, model: str, client: httpx.Client,
     bs = json_str.find("{")
     be = json_str.rfind("}")
     if bs >= 0 and be > bs:
-        json_str = json_str[bs:be + 1]
+        json_str = json_str[bs : be + 1]
     try:
         data = json.loads(json_str)
     except json.JSONDecodeError:
@@ -173,8 +200,9 @@ def extract_llm(text: str, model: str, client: httpx.Client,
     return result
 
 
-def extract_hybrid(regex_ents: list[ExtractedEntity],
-                   llm_ents: list[ExtractedEntity]) -> list[ExtractedEntity]:
+def extract_hybrid(
+    regex_ents: list[ExtractedEntity], llm_ents: list[ExtractedEntity]
+) -> list[ExtractedEntity]:
     """Combination: regex first, LLM adds concepts not already found."""
     seen = set()
     combined = []
@@ -208,8 +236,9 @@ def dedup(entities: list[ExtractedEntity]) -> list[ExtractedEntity]:
 # ── Run Comparison ────────────────────────────────────────────
 
 
-def run_comparison(test_chunks: list[tuple[int, str]], model: str,
-                   client: httpx.Client) -> dict:
+def run_comparison(
+    test_chunks: list[tuple[int, str]], model: str, client: httpx.Client
+) -> dict:
     """Run regex + LLM + hybrid on test chunks, return stats."""
     all_regex: list[ExtractedEntity] = []
     all_llm: list[ExtractedEntity] = []
@@ -286,14 +315,23 @@ def print_comparison(results: dict, label: str = ""):
 
         print(f"\n  🔹 {method.upper()}")
         print(f"     Total entities: {len(ents)}")
-        types_str = ", ".join(f"{k}={v}" for k, v in sorted(type_bd.items(),
-                                                           key=lambda x: -x[1]))
+        types_str = ", ".join(
+            f"{k}={v}" for k, v in sorted(type_bd.items(), key=lambda x: -x[1])
+        )
         if types_str:
             print(f"     Types: {types_str}")
         print(f"     Time: {time_s:.1f}s ({data['time_ms']/nchunks:.0f}ms/chunk)")
 
         # Show entities by type
-        for etype in ("concept", "api", "class", "function", "module", "file", "constant"):
+        for etype in (
+            "concept",
+            "api",
+            "class",
+            "function",
+            "module",
+            "file",
+            "constant",
+        ):
             matched = [e.name for e in ents if e.entity_type == etype]
             if matched:
                 names = sorted(matched)
@@ -306,17 +344,19 @@ def print_comparison(results: dict, label: str = ""):
     l_set = {(e.name, e.entity_type) for e in results["llm"]["entities"]}
     h_set = {(e.name, e.entity_type) for e in results["hybrid"]["entities"]}
 
-    print(f"\n  🔄 Overlap Analysis:")
+    print("\n  🔄 Overlap Analysis:")
     print(f"     Regex-only:  {len(r_set - l_set)}")
     print(f"     LLM-only:    {len(l_set - r_set)}")
     print(f"     Shared:      {len(r_set & l_set)}")
     print(f"     Hybrid total: {len(h_set)}")
 
     # Show LLM-unique concept/API entities
-    llm_unique = [e for e in results["llm"]["entities"]
-                  if (e.name, e.entity_type) not in r_set
-                  and e.entity_type in ("concept", "api")]
-    print(f"\n  💡 LLM-added concepts/APIs (vs regex):")
+    llm_unique = [
+        e
+        for e in results["llm"]["entities"]
+        if (e.name, e.entity_type) not in r_set and e.entity_type in ("concept", "api")
+    ]
+    print("\n  💡 LLM-added concepts/APIs (vs regex):")
     if llm_unique:
         for e in sorted(llm_unique, key=lambda x: x.entity_type + x.name):
             print(f"     [{e.entity_type}] {e.name}")
@@ -331,12 +371,13 @@ def print_comparison(results: dict, label: str = ""):
 
 def main():
     parser = argparse.ArgumentParser(description="Entity extraction comparison")
-    parser.add_argument("--chunks", type=int, default=100,
-                        help="Number of chunks to test")
-    parser.add_argument("--model", default="qwen2.5-coder:7b",
-                        help="LLM model for comparison")
-    parser.add_argument("--all", action="store_true",
-                        help="Compare all models")
+    parser.add_argument(
+        "--chunks", type=int, default=100, help="Number of chunks to test"
+    )
+    parser.add_argument(
+        "--model", default="qwen2.5-coder:7b", help="LLM model for comparison"
+    )
+    parser.add_argument("--all", action="store_true", help="Compare all models")
     args = parser.parse_args()
 
     # Get chunks from DB
@@ -351,8 +392,10 @@ def main():
         )
         test_chunks = cur.fetchall()
     ids = [r[0] for r in test_chunks]
-    print(f"✅ Loaded {len(test_chunks)} chunks (IDs {min(ids)} ~ {max(ids)})",
-          file=sys.stderr)
+    print(
+        f"✅ Loaded {len(test_chunks)} chunks (IDs {min(ids)} ~ {max(ids)})",
+        file=sys.stderr,
+    )
 
     if args.all:
         models = ["qwen2.5-coder:1.5b", "qwen2.5-coder:7b"]
@@ -369,8 +412,13 @@ def main():
         # Save JSON
         out_path = f"/tmp/entity-compare-{model.replace(':', '-')}.json"
         with open(out_path, "w") as f:
-            json.dump(results, f, indent=2, ensure_ascii=False,
-                      default=lambda o: o.__dict__ if hasattr(o, '__dict__') else str(o))
+            json.dump(
+                results,
+                f,
+                indent=2,
+                ensure_ascii=False,
+                default=lambda o: o.__dict__ if hasattr(o, "__dict__") else str(o),
+            )
         print(f"📁 Results saved to: {out_path}", file=sys.stderr)
 
     print("\n✅ Done!")

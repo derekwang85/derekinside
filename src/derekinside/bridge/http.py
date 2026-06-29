@@ -258,6 +258,7 @@ def create_app(
     async def frontend():
         from fastapi.responses import HTMLResponse
         from pathlib import Path
+
         html = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
         if html.exists():
             return HTMLResponse(html.read_text())
@@ -274,12 +275,14 @@ def create_app(
             entities = kg.list_entities(limit=limit)
         result = []
         for e in entities:
-            result.append({
-                "id": e.id,
-                "name": e.name,
-                "entity_type": e.entity_type,
-                "chunks": len(kg.get_chunks_for_entity(e.id, limit=1000)),
-            })
+            result.append(
+                {
+                    "id": e.id,
+                    "name": e.name,
+                    "entity_type": e.entity_type,
+                    "chunks": len(kg.get_chunks_for_entity(e.id, limit=1000)),
+                }
+            )
         return {"entities": result, "total": len(result)}
 
     @app.get("/api/v1/graph/subgraph")
@@ -294,12 +297,16 @@ def create_app(
         sg = build_subgraph(kg, entity, max_depth=depth)
         if sg is None:
             matches = kg.search_entities(entity, limit=5)
-            return JSONResponse({
-                "error": f"Entity '{entity}' not found",
-                "suggestions": [{"name": m.name, "type": m.entity_type} for m in matches],
-            }, status_code=404)
+            return JSONResponse(
+                {
+                    "error": f"Entity '{entity}' not found",
+                    "suggestions": [
+                        {"name": m.name, "type": m.entity_type} for m in matches
+                    ],
+                },
+                status_code=404,
+            )
         return JSONResponse(sg.to_dict())
-
 
     @app.post("/api/v1/mine")
     async def api_mine(request: Request):
@@ -341,13 +348,15 @@ def create_app(
 
         batch_data = []
         for ci, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-            batch_data.append({
-                "page_id": page_id,
-                "chunk_index": ci,
-                "chunk_text": chunk.text,
-                "token_count": chunk.token_count,
-                "embedding": emb,
-            })
+            batch_data.append(
+                {
+                    "page_id": page_id,
+                    "chunk_index": ci,
+                    "chunk_text": chunk.text,
+                    "token_count": chunk.token_count,
+                    "embedding": emb,
+                }
+            )
 
         store.insert_chunks_batch(batch_data)
 

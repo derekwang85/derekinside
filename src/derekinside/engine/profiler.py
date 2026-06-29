@@ -14,19 +14,16 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
 from typing import Any
 
 from derekinside.engine.model import (
     ModelEndpoint,
     ModelProfile,
     CapabilityNotSupported,
-    intel_rank,
-    cost_rank,
-    speed_rank,
 )
 
 logger = logging.getLogger(__name__)
+from derekinside.engine.registry import ModelRegistry
 
 # ── Golden Data for probing (zero-cost ground truth) ──
 # From LongMemEval: 290 human-annotated entities, 100 golden chunks.
@@ -39,8 +36,11 @@ SMOKE_SET: list[tuple[str, list[tuple[str, str]]]] = [
         "implements InitializingBean { "
         "private final OrderRepository repository; "
         "@Autowired public OrderService(OrderRepository repo) { ... } }",
-        [("OrderService", "class"), ("BaseService", "class"),
-         ("OrderRepository", "class")],
+        [
+            ("OrderService", "class"),
+            ("BaseService", "class"),
+            ("OrderRepository", "class"),
+        ],
     ),
     # Sample 2: Doc concept (Chinese business domain)
     (
@@ -50,7 +50,7 @@ SMOKE_SET: list[tuple[str, list[tuple[str, str]]]] = [
     ),
     # Sample 3: API endpoint
     (
-        "@PostMapping(\"/api/order/create\")\n"
+        '@PostMapping("/api/order/create")\n'
         "public Result createOrder(@RequestBody OrderRequest req) {\n"
         "    return orderService.create(req);\n}",
         [("/api/order/create", "api"), ("createOrder", "function")],
@@ -65,8 +65,11 @@ SMOKE_SET: list[tuple[str, list[tuple[str, str]]]] = [
         "public interface TradingService {\n"
         "    OrderResult executeOrder(OrderRequest request);\n"
         "    void cancelOrder(String orderId);\n}",
-        [("TradingService", "class"), ("executeOrder", "function"),
-         ("cancelOrder", "function")],
+        [
+            ("TradingService", "class"),
+            ("executeOrder", "function"),
+            ("cancelOrder", "function"),
+        ],
     ),
 ]
 
@@ -74,27 +77,35 @@ FULL_SET: list[tuple[str, list[tuple[str, str]]]] = [
     # Will be populated from LongMemEval golden dataset
     # Currently using SMOKE_SET + more diverse samples
     *SMOKE_SET,
-    ("router.get(\"/api/v1/positions\", authMiddleware, positionController.getPositions)",
-     [("/api/v1/positions", "api"), ("getPositions", "function")]),
-    ("风险控制：系统自动监控持仓风险率，当风险率低于100%时触发强平。",
-     [("风险控制", "concept")]),
-    ("@Service\npublic class AuditLogService {\n"
-     "    @Autowired private AuditLogRepository repository;",
-     [("AuditLogService", "class"), ("AuditLogRepository", "class")]),
-    ("def calculate_margin(price: float, quantity: int, leverage: int) -> float:",
-     [("calculate_margin", "function")]),
-    ("Maven dependency:\n"
-     "<dependency>\n<groupId>com.example</groupId>\n"
-     "<artifactId>trade-oms-core</artifactId>\n</dependency>",
-     [("trade-oms-core", "module")]),
+    (
+        'router.get("/api/v1/positions", authMiddleware, positionController.getPositions)',
+        [("/api/v1/positions", "api"), ("getPositions", "function")],
+    ),
+    (
+        "风险控制：系统自动监控持仓风险率，当风险率低于100%时触发强平。",
+        [("风险控制", "concept")],
+    ),
+    (
+        "@Service\npublic class AuditLogService {\n"
+        "    @Autowired private AuditLogRepository repository;",
+        [("AuditLogService", "class"), ("AuditLogRepository", "class")],
+    ),
+    (
+        "def calculate_margin(price: float, quantity: int, leverage: int) -> float:",
+        [("calculate_margin", "function")],
+    ),
+    (
+        "Maven dependency:\n"
+        "<dependency>\n<groupId>com.example</groupId>\n"
+        "<artifactId>trade-oms-core</artifactId>\n</dependency>",
+        [("trade-oms-core", "module")],
+    ),
 ]
 
 SMOKE_CHUNK = "public class Test { private String name; public void run() {} }"
 
 
-def _exact_match(
-    result: Any, expected: list[tuple[str, str]]
-) -> bool:
+def _exact_match(result: Any, expected: list[tuple[str, str]]) -> bool:
     """Compare extraction result against expected entities.
     Pure local string match — no external model involved."""
     if not result:
@@ -107,7 +118,9 @@ def _exact_match(
     else:
         entities = []
 
-    names_found = {e.name if hasattr(e, "name") else e.get("name", "") for e in entities}
+    names_found = {
+        e.name if hasattr(e, "name") else e.get("name", "") for e in entities
+    }
     expected_names = {e[0] for e in expected}
     if not expected_names:
         return True
@@ -242,7 +255,12 @@ class ModelProfiler:
         self._registry.refresh_profile(name, profile)
         logger.info(
             "Boot probe for '%s': intel=%s@%.2f, speed=%s, cost=%s, caps=%s",
-            name, intelligence, confidence, profile.speed_tier, cost_tier, caps,
+            name,
+            intelligence,
+            confidence,
+            profile.speed_tier,
+            cost_tier,
+            caps,
         )
         return profile
 
@@ -267,7 +285,9 @@ class ModelProfiler:
             if len(unique) >= 3:
                 logger.warning(
                     "Model '%s' oscillating across %d probes: %s — freezing",
-                    name, old.probe_count, list(unique),
+                    name,
+                    old.probe_count,
+                    list(unique),
                 )
                 old.oscillating = True
                 self._registry.refresh_profile(name, old)
@@ -300,11 +320,13 @@ class ModelProfiler:
 
         # Build history
         history = list(old.history) if old else []
-        history.append({
-            "at": time.time(),
-            "from": {"intelligence": old.intelligence if old else None},
-            "to": {"intelligence": intelligence},
-        })
+        history.append(
+            {
+                "at": time.time(),
+                "from": {"intelligence": old.intelligence if old else None},
+                "to": {"intelligence": intelligence},
+            }
+        )
 
         profile = ModelProfile(
             capabilities=(old.capabilities if old else {}),
@@ -324,7 +346,11 @@ class ModelProfiler:
         if old and old.intelligence != intelligence:
             logger.info(
                 "Model '%s' intel changed: %s -> %s (acc: %.2f, speed: %s)",
-                name, old.intelligence, intelligence, acc, speed_tier,
+                name,
+                old.intelligence,
+                intelligence,
+                acc,
+                speed_tier,
             )
 
         return profile
@@ -363,13 +389,16 @@ class PassiveObserver:
         output_json_valid: bool = True,
     ) -> None:
         """Record one query's side-effect data."""
-        m = self._metrics.setdefault(model_name, {
-            "total_calls": 0,
-            "latency_window": [],
-            "errors": 0,
-            "avg_entities": 0.0,
-            "json_errors": 0,
-        })
+        m = self._metrics.setdefault(
+            model_name,
+            {
+                "total_calls": 0,
+                "latency_window": [],
+                "errors": 0,
+                "avg_entities": 0.0,
+                "json_errors": 0,
+            },
+        )
         m["total_calls"] += 1
         m["latency_window"] = (m["latency_window"] + [latency_ms])[-20:]
         if not success:
@@ -386,7 +415,9 @@ class PassiveObserver:
             try:
                 self._profiler.get_or_probe(model_name, mode="deep")
             except Exception as e:
-                logger.warning("Passive-triggered deep probe failed for %s: %s", model_name, e)
+                logger.warning(
+                    "Passive-triggered deep probe failed for %s: %s", model_name, e
+                )
             self._qcount[model_name] = 0
             # Exponential backoff: 50 -> 100 -> 200 -> 400
             self._threshold[model_name] = min(threshold * 2, 400)
@@ -402,26 +433,39 @@ class PassiveObserver:
             recent = m["latency_window"][-5:]
             older = m["latency_window"][:-5]
             if older and sum(recent) / len(recent) > sum(older) / len(older) * 2:
-                logger.info("Passive anomaly: %s latency spike (recent=%.0fms, older=%.0fms)",
-                            model_name, sum(recent)/len(recent), sum(older)/len(older))
+                logger.info(
+                    "Passive anomaly: %s latency spike (recent=%.0fms, older=%.0fms)",
+                    model_name,
+                    sum(recent) / len(recent),
+                    sum(older) / len(older),
+                )
                 return True
 
         # 2. Entity count dropped to near-zero
         if m["avg_entities"] < 0.5 and m["total_calls"] >= 10:
-            logger.info("Passive anomaly: %s entity count dropped to %.2f",
-                        model_name, m["avg_entities"])
+            logger.info(
+                "Passive anomaly: %s entity count dropped to %.2f",
+                model_name,
+                m["avg_entities"],
+            )
             return True
 
         # 3. Error rate > 10%
         if m["total_calls"] >= 20 and m["errors"] / m["total_calls"] > 0.1:
-            logger.info("Passive anomaly: %s error rate %.1f%%",
-                        model_name, m["errors"] / m["total_calls"] * 100)
+            logger.info(
+                "Passive anomaly: %s error rate %.1f%%",
+                model_name,
+                m["errors"] / m["total_calls"] * 100,
+            )
             return True
 
         # 4. JSON parse failures > 20%
         if m["total_calls"] >= 10 and m["json_errors"] / m["total_calls"] > 0.2:
-            logger.info("Passive anomaly: %s JSON error rate %.1f%%",
-                        model_name, m["json_errors"] / m["total_calls"] * 100)
+            logger.info(
+                "Passive anomaly: %s JSON error rate %.1f%%",
+                model_name,
+                m["json_errors"] / m["total_calls"] * 100,
+            )
             return True
 
         return False

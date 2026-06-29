@@ -10,7 +10,6 @@ Handles merging extraction results from multiple modes:
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +57,9 @@ def merge_entity_sets(
                 merged[name] = {"entry": e, "weight": inc_weight}
             else:
                 # Lower weight: still keep but with low weight
-                merged[name]["entry"].setdefault("_modes_seen", []).append(incoming_mode)
+                merged[name]["entry"].setdefault("_modes_seen", []).append(
+                    incoming_mode
+                )
         else:
             e["weight"] = inc_weight
             e["_mode"] = incoming_mode

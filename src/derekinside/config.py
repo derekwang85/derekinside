@@ -74,6 +74,7 @@ class EntityExtractionConfig:
       hybrid-1.5b   — Regex + 1.5B concepts (best balance on CPU)
       hybrid-7b     — Regex + 7B concepts (highest precision)
     """
+
     mode: str = "hybrid-7b"
     ollama_url: str = "http://localhost:11434/api/generate"
     llm_min_chars: int = 100
@@ -83,7 +84,9 @@ class EntityExtractionConfig:
 class KnowledgeGraphConfig:
     enabled: bool = False
     extraction_model: str = "qwen2.5-coder:7b"
-    entity_extraction: EntityExtractionConfig = field(default_factory=EntityExtractionConfig)
+    entity_extraction: EntityExtractionConfig = field(
+        default_factory=EntityExtractionConfig
+    )
 
 
 @dataclass

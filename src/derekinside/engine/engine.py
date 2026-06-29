@@ -52,9 +52,7 @@ class Engine:
         results = self._registry.health_all()
         healthy = sum(1 for v in results.values() if v.get("status") == "ok")
         total = len(results)
-        logger.info(
-            "Engine started: %d/%d models healthy", healthy, total
-        )
+        logger.info("Engine started: %d/%d models healthy", healthy, total)
 
     def close(self) -> None:
         """Release all resources."""
@@ -64,8 +62,7 @@ class Engine:
     @property
     def healthy(self) -> int:
         return sum(
-            1 for v in self._registry.health_all().values()
-            if v.get("status") == "ok"
+            1 for v in self._registry.health_all().values() if v.get("status") == "ok"
         )
 
     @property
@@ -126,8 +123,9 @@ class Engine:
 
     # ── Passive Observation ──
 
-    def _record(self, model_name: str, capability: str, result: Any,
-                entity_count: int = 0) -> None:
+    def _record(
+        self, model_name: str, capability: str, result: Any, entity_count: int = 0
+    ) -> None:
         """Record side-effect data for passive observation."""
         success = result is not None and (
             not isinstance(result, dict) or "error" not in result
@@ -152,7 +150,9 @@ class Engine:
                 "intelligence": m.intelligence,
                 "cost_tier": m.cost_tier,
                 "speed_tier": m.speed_tier,
-                "capabilities": list(m.profile.capabilities.keys()) if m.profile else [],
+                "capabilities": list(m.profile.capabilities.keys())
+                if m.profile
+                else [],
                 "health": m.health().get("status", "unknown"),
             }
             for m in self._registry.list(capability)

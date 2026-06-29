@@ -324,7 +324,7 @@ print("=" * 60)
 if ISSUES:
     print(f"\n📋 发现 {len(ISSUES)} 个 Issue:")
     for i, issue in enumerate(ISSUES):
-        print(f"  #{i+1}: {issue['test']}")
+        print(f"  #{i + 1}: {issue['test']}")
         if issue["detail"]:
             print(f"       {issue['detail'][:200]}")
 

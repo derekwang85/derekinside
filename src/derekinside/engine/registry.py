@@ -9,15 +9,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import threading
 from pathlib import Path
-from typing import Any
 
 from derekinside.engine.model import (
     ModelEndpoint,
     ModelProfile,
-    NoModelSatisfies,
 )
 from derekinside.drivers.ollama import OllamaModel
 from derekinside.drivers.vllm import VLLMModel
@@ -67,7 +64,9 @@ class ModelRegistry:
             driver_name = cfg.get("driver", "")
             driver_cls = _DRIVERS.get(driver_name)
             if not driver_cls:
-                logger.warning("Unknown driver '%s' for model '%s', skipping", driver_name, name)
+                logger.warning(
+                    "Unknown driver '%s' for model '%s', skipping", driver_name, name
+                )
                 continue
             with self._lock:
                 self._models[name] = driver_cls(name, cfg)

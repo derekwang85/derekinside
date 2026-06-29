@@ -12,16 +12,16 @@ MODES=("regex" "1.5b" "7b" "hybrid-7b")
 for mode in "${MODES[@]}"; do
     LOG="/tmp/kg-full-${mode}.log"
     OUT="/tmp/kg-full-${mode}.json"
-    
+
     # 跳过已完成的
     if [ -f "$OUT" ]; then
         echo "[$(date)] ✅ ${mode} 已有结果，跳过"
         continue
     fi
-    
+
     echo "[$(date)] 🚀 开始 ${mode}..."
     python3 -u scripts/full_batch_extract.py --mode "${mode}" > "$LOG" 2>&1
-    
+
     if [ -f "$OUT" ]; then
         echo "[$(date)] ✅ ${mode} 完成 → $OUT"
     else

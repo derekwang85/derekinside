@@ -97,8 +97,12 @@ class VectorStore:
     """
 
     def __init__(
-        self, dsn: str, schema: str = "public",
-        pool_min: int = 1, pool_max: int = 5, **kwargs
+        self,
+        dsn: str,
+        schema: str = "public",
+        pool_min: int = 1,
+        pool_max: int = 5,
+        **kwargs,
     ):
         if psycopg is None:
             raise ImportError(
@@ -515,7 +519,9 @@ class VectorStore:
         """
         k = 60  # RRF constant
 
-        vec_results = self.search_vector(embedding, top_k * 2, wing, room, before, after)
+        vec_results = self.search_vector(
+            embedding, top_k * 2, wing, room, before, after
+        )
         kw_results = self.search_keyword(query, top_k * 2, wing, room, before, after)
 
         # Build rank maps {chunk_id: rank}

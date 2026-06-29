@@ -98,7 +98,10 @@ class OpenAIModel(ModelEndpoint):
                     "model": self._api_model,
                     "messages": [
                         {"role": "system", "content": self._SYSTEM_PROMPT},
-                        {"role": "user", "content": self._EXTRACT_USER.format(text=text[:2000])},
+                        {
+                            "role": "user",
+                            "content": self._EXTRACT_USER.format(text=text[:2000]),
+                        },
                     ],
                     "temperature": 0.1,
                     "max_tokens": 300,
@@ -141,7 +144,7 @@ class OpenAIModel(ModelEndpoint):
             msg = resp.json()["choices"][0]["message"]["content"]
             data = json.loads(msg)
             scores = data.get("scores", [1.0] * len(chunks))
-            return [float(s) / 10.0 for s in scores[:len(chunks)]]
+            return [float(s) / 10.0 for s in scores[: len(chunks)]]
         except Exception:
             return [1.0] * len(chunks)
 

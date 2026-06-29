@@ -112,12 +112,18 @@ for q, _ in QUERIES[:5]:
     if "results" in r:
         http_latencies.append(elapsed)
         cache = ", cached" if r.get("cache_hit") else ""
-        test(f"HTTP '{q[:30]}'", True, f"{elapsed*1000:.0f}ms, {len(r['results'])} results{cache}")
+        test(
+            f"HTTP '{q[:30]}'",
+            True,
+            f"{elapsed * 1000:.0f}ms, {len(r['results'])} results{cache}",
+        )
     else:
         test(f"HTTP '{q[:30]}'", False, r.get("error", "unknown"))
 
 if http_latencies:
-    print(f"\n  Avg HTTP latency: {sum(http_latencies)/len(http_latencies)*1000:.0f}ms")
+    print(
+        f"\n  Avg HTTP latency: {sum(http_latencies) / len(http_latencies) * 1000:.0f}ms"
+    )
 
 print()
 
@@ -133,17 +139,29 @@ t3 = time.time()
 
 cold = t1 - t0
 warm = t3 - t2
-test("Cold cache first request", "results" in r1, f"{cold*1000:.0f}ms")
-test("Warm cache second request", r2.get("cache_hit"), f"{warm*1000:.0f}ms (hit={r2.get('cache_hit')})")
+test("Cold cache first request", "results" in r1, f"{cold * 1000:.0f}ms")
+test(
+    "Warm cache second request",
+    r2.get("cache_hit"),
+    f"{warm * 1000:.0f}ms (hit={r2.get('cache_hit')})",
+)
 if r2.get("cache_hit"):
-    test(f"Speedup: {cold/warm:.0f}x", cold > warm * 2, f"{cold:.2f}s → {warm*1000:.0f}ms")
+    test(
+        f"Speedup: {cold / warm:.0f}x",
+        cold > warm * 2,
+        f"{cold:.2f}s → {warm * 1000:.0f}ms",
+    )
 
 print()
 
 # ── 4. Time travel ──
 print("⏰ [4/6] Time Travel (version tracking)")
 r = search_http("KYC", after="2026-06-01T00:00:00")
-test("after filter works", "results" in r, f"{len(r.get('results',[]))} results" if "results" in r else "")
+test(
+    "after filter works",
+    "results" in r,
+    f"{len(r.get('results', []))} results" if "results" in r else "",
+)
 r2 = search_http("KYC", before="2026-06-01T00:00:00")
 if "results" in r2:
     test("before filter works", True, f"{len(r2['results'])} results")
@@ -156,6 +174,7 @@ print()
 print("⚡ [5/6] Concurrency (5 queries x 2 rounds)")
 import concurrent.futures
 
+
 def http_search_batch(q):
     try:
         r = search_http(q, top_k=3)
@@ -163,19 +182,26 @@ def http_search_batch(q):
     except:
         return 0
 
+
 for round_num in range(2):
     t0 = time.time()
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
         counts = list(ex.map(http_search_batch, [q for q, _ in QUERIES[:5]]))
     elapsed = time.time() - t0
     total_results = sum(counts)
-    test(f"Round {round_num+1}: 5 queries", total_results > 0, f"{elapsed*1000:.0f}ms, {total_results} total results")
+    test(
+        f"Round {round_num + 1}: 5 queries",
+        total_results > 0,
+        f"{elapsed * 1000:.0f}ms, {total_results} total results",
+    )
 
 print()
 
 # ── 6. Knowledge graph ──
 print("🕸️  [6/6] Knowledge Graph")
-r = subprocess.run("derekinside graph stats", shell=True, capture_output=True, text=True, timeout=10)
+r = subprocess.run(
+    "derekinside graph stats", shell=True, capture_output=True, text=True, timeout=10
+)
 graph_ok = r.returncode == 0 and "Entities" in r.stdout
 test("graph stats", graph_ok)
 if graph_ok:
@@ -184,7 +210,13 @@ if graph_ok:
             print(f"  {line.strip()}")
 
 # Entity search
-r = subprocess.run('derekinside graph search Service', shell=True, capture_output=True, text=True, timeout=10)
+r = subprocess.run(
+    "derekinside graph search Service",
+    shell=True,
+    capture_output=True,
+    text=True,
+    timeout=10,
+)
 test("graph entity search", r.returncode == 0 and len(r.stdout) > 30)
 
 print()

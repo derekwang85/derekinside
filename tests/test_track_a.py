@@ -3,19 +3,25 @@
 Integration test: verify that Track A (Model Registry + Pipeline + Profiler + Engine)
 works correctly end-to-end without connecting to any real models.
 """
+
 import sys
+
 sys.path.insert(0, "/home/cbnb/derekinside")
 
 from derekinside.engine.model import (
-    ModelProfile, intel_rank, cost_rank, speed_rank,
-    CapabilityNotSupported, NoModelSatisfies,
+    ModelProfile,
+    intel_rank,
+    cost_rank,
+    speed_rank,
+    CapabilityNotSupported,
+    NoModelSatisfies,
 )
 from derekinside.engine.pipeline import PipelineResolver
-from derekinside.engine.profiler import ModelProfiler, PassiveObserver
 from derekinside.engine.registry import ModelRegistry
 
 passed = 0
 failed = 0
+
 
 def check(label, ok):
     global passed, failed
@@ -26,25 +32,43 @@ def check(label, ok):
         failed += 1
         print(f"  ❌ {label}")
 
+
 # ── 1. ModelProfile Constraints ──
 print("\n1. ModelProfile constraint logic")
 p = ModelProfile(intelligence="medium", cost_tier="free")
 check("medium satisfies low_min", p.satisfies({"min_intelligence": "low"}))
 check("medium fails high_min", not p.satisfies({"min_intelligence": "high"}))
 check("free satisfies paid_max", p.satisfies({"max_cost": "paid_low"}))
-check("oscillating frozen", not ModelProfile(
-    intelligence="high", oscillating=True
-).satisfies({"min_intelligence": "low"}))
+check(
+    "oscillating frozen",
+    not ModelProfile(intelligence="high", oscillating=True).satisfies(
+        {"min_intelligence": "low"}
+    ),
+)
 
 # ── 2. Rank ordering ──
 print("\n2. Rank ordering")
-check("intel rank", intel_rank("very_high") > intel_rank("high") > intel_rank("medium") > intel_rank("low"))
+check(
+    "intel rank",
+    intel_rank("very_high")
+    > intel_rank("high")
+    > intel_rank("medium")
+    > intel_rank("low"),
+)
 check("cost rank", cost_rank("paid_high") > cost_rank("paid_low") > cost_rank("free"))
-check("speed rank", speed_rank("fast") > speed_rank("medium") > speed_rank("slow") > speed_rank("batch"))
+check(
+    "speed rank",
+    speed_rank("fast")
+    > speed_rank("medium")
+    > speed_rank("slow")
+    > speed_rank("batch"),
+)
 
 # ── 3. Profile from_config ──
 print("\n3. Profile from_config")
-p2 = ModelProfile.from_config({"intelligence": "high", "cost_tier": "paid_low", "speed_tier": "fast"})
+p2 = ModelProfile.from_config(
+    {"intelligence": "high", "cost_tier": "paid_low", "speed_tier": "fast"}
+)
 check("user intel", p2.intelligence == "high")
 check("user cost", p2.cost_tier == "paid_low")
 check("user speed", p2.speed_tier == "fast")
@@ -57,9 +81,14 @@ print("\n4. PipelineResolver constraint solving")
 # Build a mock registry with hardcoded profiles
 from derekinside.engine.model import ModelEndpoint
 
+
 class MockModel(ModelEndpoint):
-    def invoke(self, capability, **kwargs): raise CapabilityNotSupported()
-    def health(self): return {"status": "ok", "latency_ms": 5}
+    def invoke(self, capability, **kwargs):
+        raise CapabilityNotSupported()
+
+    def health(self):
+        return {"status": "ok", "latency_ms": 5}
+
 
 # Register mock models
 cfg = {"models": {}}
@@ -72,7 +101,9 @@ for name, intel, cost, speed, lat in [
 ]:
     m = MockModel(name, {})
     m.profile = ModelProfile(
-        intelligence=intel, cost_tier=cost, speed_tier=speed,
+        intelligence=intel,
+        cost_tier=cost,
+        speed_tier=speed,
         avg_latency_ms=lat,
     )
     reg._models[name] = m
@@ -114,13 +145,14 @@ except NoModelSatisfies:
     # qwen-7b (high, free) should be relaxed to: min_intel not originally specified
     # After relax, no candidate with very_high+free. With relaxation:
     # first relax: if min_intel was in original (very_high), drops to high
-    # but all candidates except gpt4o-mini have cost=free. After intel relax: 
+    # but all candidates except gpt4o-mini have cost=free. After intel relax:
     # qwen-7b (high, free) qualifies!
     check("impossible relaxes correctly, but needs config fix", False)
 
 # ── 5. Profiler logic ──
 print("\n5. Profiler logic")
 from derekinside.engine.profiler import _acc_to_intel, _latency_to_speed
+
 check("acc 0.7 -> very_high", _acc_to_intel(0.7) == "very_high")
 check("acc 0.55 -> high", _acc_to_intel(0.55) == "high")
 check("acc 0.4 -> medium", _acc_to_intel(0.4) == "medium")
@@ -131,8 +163,8 @@ check("5000ms -> slow", _latency_to_speed(5000) == "slow")
 check("20000ms -> batch", _latency_to_speed(20000) == "batch")
 
 # ── Summary ──
-print(f"\n{'='*40}")
-print(f"Results: {passed} passed, {failed} failed out of {passed+failed}")
+print(f"\n{'=' * 40}")
+print(f"Results: {passed} passed, {failed} failed out of {passed + failed}")
 if failed:
     sys.exit(1)
 else:

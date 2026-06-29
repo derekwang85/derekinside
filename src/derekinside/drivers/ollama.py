@@ -85,8 +85,8 @@ class OllamaModel(ModelEndpoint):
     # ── Extract (via generate) ──
 
     _EXTRACT_PROMPT = (
-        'Extract named entities from this text. '
-        'Types: class, function, module, api, concept. '
+        "Extract named entities from this text. "
+        "Types: class, function, module, api, concept. "
         'Return only JSON: {{"entities":[{{"name":"X","type":"class"}}]}} '
         'No explanation. Empty: {{"entities":[]}}\n\nTEXT:\n{text}'
     )
@@ -133,9 +133,9 @@ class OllamaModel(ModelEndpoint):
     # ── Rerank (via generate, lightweight) ──
 
     _RERANK_PROMPT = (
-        'Rate relevance (0-10) of each chunk to the query. '
+        "Rate relevance (0-10) of each chunk to the query. "
         'Return JSON: {{"scores": [0, 5, 8]}}\n\n'
-        'Query: {query}\nChunks: {chunks}'
+        "Query: {query}\nChunks: {chunks}"
     )
 
     def _rerank(self, query: str, chunks: list[str]) -> list[float]:

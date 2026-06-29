@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 import re
 from difflib import SequenceMatcher
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,12 @@ logger = logging.getLogger(__name__)
 _DEFAULT_SYNONYMS: dict[str, list[str]] = {
     # KYC domain
     "kyc": ["kyc", "kycapplication", "kyc_application", "客户身份识别", "kyc认证"],
-    "kycapplication": ["kycapplication", "kyc_application", "kyc", "kycapplicationservice"],
+    "kycapplication": [
+        "kycapplication",
+        "kyc_application",
+        "kyc",
+        "kycapplicationservice",
+    ],
     # User/Security domain
     "user": ["user", "用户", "userinfo", "user_info"],
     "auth": ["auth", "authentication", "认证", "授权"],
@@ -47,9 +51,28 @@ _DEFAULT_SYNONYMS: dict[str, list[str]] = {
 # ── Stop words for filtering ──
 
 _STOP_WORDS = {
-    "get", "set", "is", "has", "to", "of", "in", "on", "at",
-    "by", "for", "with", "from", "data", "info", "base", "abstract",
-    "utils", "util", "helper", "common", "core",
+    "get",
+    "set",
+    "is",
+    "has",
+    "to",
+    "of",
+    "in",
+    "on",
+    "at",
+    "by",
+    "for",
+    "with",
+    "from",
+    "data",
+    "info",
+    "base",
+    "abstract",
+    "utils",
+    "util",
+    "helper",
+    "common",
+    "core",
 }
 
 
@@ -106,7 +129,9 @@ class EntityResolver:
 
         return name, False
 
-    def scan_aliases(self, name: str, known_names: list[str]) -> list[tuple[str, float]]:
+    def scan_aliases(
+        self, name: str, known_names: list[str]
+    ) -> list[tuple[str, float]]:
         """
         Find fuzzy matches for name among known names.
         Returns [(matched_name, confidence), ...] sorted by confidence.
@@ -136,10 +161,27 @@ class EntityResolver:
         """
         resolved, _ = self.resolve(name)
         # Strip common suffixes
-        for suffix in ["service", "impl", "dto", "vo", "dao", "mapper",
-                        "repository", "controller", "config", "utils",
-                        "request", "response", "command", "query",
-                        "entity", "model", "pojo", "po", "bo"]:
+        for suffix in [
+            "service",
+            "impl",
+            "dto",
+            "vo",
+            "dao",
+            "mapper",
+            "repository",
+            "controller",
+            "config",
+            "utils",
+            "request",
+            "response",
+            "command",
+            "query",
+            "entity",
+            "model",
+            "pojo",
+            "po",
+            "bo",
+        ]:
             pattern = re.compile(rf"^(.+?)(?:{suffix})$", re.IGNORECASE)
             m = pattern.match(resolved)
             if m and len(m.group(1)) >= 3:
@@ -161,7 +203,9 @@ class EntityResolver:
     def _split_camel(self, name: str) -> list[str]:
         """Split CamelCase into words. 'KYCApplicationService' → ['KYC', 'Application', 'Service']"""
         # Handle acronyms (all caps segments)
-        parts = re.findall(r'[A-Z]{2,}(?=[A-Z][a-z]|\d|$)|[A-Z]?[a-z]+|[A-Z]+|[0-9]+', name)
+        parts = re.findall(
+            r"[A-Z]{2,}(?=[A-Z][a-z]|\d|$)|[A-Z]?[a-z]+|[A-Z]+|[0-9]+", name
+        )
         return [p for p in parts if p.lower() not in _STOP_WORDS and len(p) >= 1]
 
     def _fuzzy_score(self, a: str, b: str) -> float:

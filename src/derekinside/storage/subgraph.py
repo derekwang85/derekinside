@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from typing import Any
 
 from derekinside.storage.graph import KnowledgeGraph
 
@@ -50,16 +49,20 @@ class Subgraph:
             },
             "nodes": [
                 {
-                    "id": n.id, "name": n.name,
-                    "type": n.entity_type, "depth": n.depth,
+                    "id": n.id,
+                    "name": n.name,
+                    "type": n.entity_type,
+                    "depth": n.depth,
                     "description": n.description,
                 }
                 for n in self.nodes
             ],
             "edges": [
                 {
-                    "source": e.source_id, "target": e.target_id,
-                    "type": e.relation_type, "weight": e.weight,
+                    "source": e.source_id,
+                    "target": e.target_id,
+                    "type": e.relation_type,
+                    "weight": e.weight,
                 }
                 for e in self.edges
             ],
@@ -81,7 +84,8 @@ class Subgraph:
             indent = "  " * depth
             for node in by_depth[depth]:
                 edges_from = [
-                    e for e in self.edges
+                    e
+                    for e in self.edges
                     if e.source_id == node.id or e.target_id == node.id
                 ]
                 rel_strs = set()
@@ -122,8 +126,11 @@ def build_subgraph(
     # Get description
     desc = (entity.metadata or {}).get("description", "") if entity.metadata else ""
     center = SubgraphNode(
-        id=entity.id, name=entity.name,
-        entity_type=entity.entity_type, description=desc, depth=0,
+        id=entity.id,
+        name=entity.name,
+        entity_type=entity.entity_type,
+        description=desc,
+        depth=0,
     )
     nodes[entity.id] = center
 
@@ -150,11 +157,17 @@ def build_subgraph(
             if neighbor_id not in nodes and len(nodes) < max_nodes:
                 neighbor = graph.get_entity(neighbor_id)
                 if neighbor:
-                    ndesc = (neighbor.metadata or {}).get("description", "") if neighbor.metadata else ""
+                    ndesc = (
+                        (neighbor.metadata or {}).get("description", "")
+                        if neighbor.metadata
+                        else ""
+                    )
                     node = SubgraphNode(
-                        id=neighbor.id, name=neighbor.name,
+                        id=neighbor.id,
+                        name=neighbor.name,
                         entity_type=neighbor.entity_type,
-                        description=ndesc, depth=depth + 1,
+                        description=ndesc,
+                        depth=depth + 1,
                     )
                     nodes[neighbor.id] = node
                     visited_entities.add(neighbor.id)
@@ -163,12 +176,14 @@ def build_subgraph(
                         queue.append((neighbor.id, depth + 1))
 
             if neighbor_id in nodes:
-                edges.append(SubgraphEdge(
-                    source_id=rel.source_entity_id,
-                    target_id=rel.target_entity_id,
-                    relation_type=rel.relation_type,
-                    weight=rel.weight,
-                ))
+                edges.append(
+                    SubgraphEdge(
+                        source_id=rel.source_entity_id,
+                        target_id=rel.target_entity_id,
+                        relation_type=rel.relation_type,
+                        weight=rel.weight,
+                    )
+                )
 
     # Determine depth for nodes not visited in BFS
     return Subgraph(

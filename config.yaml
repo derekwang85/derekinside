@@ -94,7 +94,7 @@ pipeline:
     requires:
       min_intelligence: low
       max_cost: free
-      max_latency_ms: 10000
+      max_latency_ms: 120000  # CPU 加载 qwen-7b 首次需 30-60s
     objective: optimize_quality
     mode: hybrid-7b
     candidates:

@@ -14,7 +14,6 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any
 
 from derekinside.storage.graph import KnowledgeGraph
 
@@ -24,24 +23,105 @@ logger = logging.getLogger(__name__)
 
 _STOP_ENTITIES: set[str] = {
     # Common English words
-    "data", "info", "information", "content", "text", "file", "code",
-    "name", "type", "value", "key", "id", "list", "map", "set", "array",
-    "object", "class", "method", "function", "field", "property",
-    "result", "response", "request", "input", "output", "status",
-    "config", "configuration", "setting", "option", "param", "parameter",
-    "item", "tag", "label", "title", "desc", "description", "summary",
-    "index", "node", "path", "url", "uri", "link", "ref", "reference",
-    "system", "service", "module", "component", "util", "utils", "helper",
-    "api", "rest", "soap", "json", "xml", "yaml", "yml", "sql",
+    "data",
+    "info",
+    "information",
+    "content",
+    "text",
+    "file",
+    "code",
+    "name",
+    "type",
+    "value",
+    "key",
+    "id",
+    "list",
+    "map",
+    "set",
+    "array",
+    "object",
+    "class",
+    "method",
+    "function",
+    "field",
+    "property",
+    "result",
+    "response",
+    "request",
+    "input",
+    "output",
+    "status",
+    "config",
+    "configuration",
+    "setting",
+    "option",
+    "param",
+    "parameter",
+    "item",
+    "tag",
+    "label",
+    "title",
+    "desc",
+    "description",
+    "summary",
+    "index",
+    "node",
+    "path",
+    "url",
+    "uri",
+    "link",
+    "ref",
+    "reference",
+    "system",
+    "service",
+    "module",
+    "component",
+    "util",
+    "utils",
+    "helper",
+    "api",
+    "rest",
+    "soap",
+    "json",
+    "xml",
+    "yaml",
+    "yml",
+    "sql",
     # Java/Kotlin default
-    "string", "integer", "boolean", "long", "double", "float", "byte",
-    "char", "short", "void", "object", "exception", "throwable",
-    "serialversionuid", "logger", "log",
+    "string",
+    "integer",
+    "boolean",
+    "long",
+    "double",
+    "float",
+    "byte",
+    "char",
+    "short",
+    "void",
+    "object",
+    "exception",
+    "throwable",
+    "serialversionuid",
+    "logger",
+    "log",
     # Framework noise
-    "autowired", "inject", "resource", "override", "deprecated",
-    "suppresswarnings", "test", "before", "after", "setup", "teardown",
+    "autowired",
+    "inject",
+    "resource",
+    "override",
+    "deprecated",
+    "suppresswarnings",
+    "test",
+    "before",
+    "after",
+    "setup",
+    "teardown",
     # Development
-    "todo", "fixme", "hack", "xxx", "note",
+    "todo",
+    "fixme",
+    "hack",
+    "xxx",
+    "note",
 }
 
 
@@ -82,7 +162,8 @@ class GraphPruner:
 
         with self._graph.cursor() as cur:
             # 1. Entity with too few chunk links
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT e.id, e.name, e.entity_type, e.metadata,
                        COUNT(ec.id) as link_count
                 FROM entities e
@@ -90,9 +171,13 @@ class GraphPruner:
                 GROUP BY e.id, e.name, e.entity_type, e.metadata
                 HAVING COUNT(ec.id) < %s
                 ORDER BY link_count, e.id
-            """, (min_chunk_links,))
+            """,
+                (min_chunk_links,),
+            )
             sparse = cur.fetchall()
-            report.details.append(f"Sparse entities (< {min_chunk_links} links): {len(sparse)}")
+            report.details.append(
+                f"Sparse entities (< {min_chunk_links} links): {len(sparse)}"
+            )
 
             for row in sparse:
                 eid, name, etype, metadata, links = row
@@ -105,10 +190,10 @@ class GraphPruner:
                     should_remove = True
                     reason = "stop-word"
                 # Check noise patterns
-                elif re.match(r'^[a-z]{2,4}$', name):  # short lowercase words
+                elif re.match(r"^[a-z]{2,4}$", name):  # short lowercase words
                     should_remove = True
                     reason = "too-short"
-                elif re.match(r'^[0-9.]+$', name):  # pure numbers
+                elif re.match(r"^[0-9.]+$", name):  # pure numbers
                     should_remove = True
                     reason = "numeric"
                 # 1.5b-only with no metadata
@@ -118,14 +203,19 @@ class GraphPruner:
 
                 if should_remove:
                     if dry_run:
-                        report.details.append(f"  [DRY] #{eid} '{name}' ({etype}): {reason}")
+                        report.details.append(
+                            f"  [DRY] #{eid} '{name}' ({etype}): {reason}"
+                        )
                     else:
                         cur.execute("DELETE FROM entities WHERE id = %s", (eid,))
-                        report.details.append(f"  [RMD] #{eid} '{name}' ({etype}): {reason}")
+                        report.details.append(
+                            f"  [RMD] #{eid} '{name}' ({etype}): {reason}"
+                        )
                     report.removed += 1
 
             # 2. Orphan entities (no chunk links, no relations, old)
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT e.id, e.name, e.entity_type
                 FROM entities e
                 WHERE NOT EXISTS (SELECT 1 FROM entity_chunks ec WHERE ec.entity_id = e.id)
@@ -133,9 +223,13 @@ class GraphPruner:
                                   WHERE r.source_entity_id = e.id OR r.target_entity_id = e.id)
                   AND EXTRACT(EPOCH FROM e.created_at) < %s
                 ORDER BY e.id
-            """, (cutoff_ts,))
+            """,
+                (cutoff_ts,),
+            )
             orphans = cur.fetchall()
-            report.details.append(f"Orphan entities (> {days_old}d, no links): {len(orphans)}")
+            report.details.append(
+                f"Orphan entities (> {days_old}d, no links): {len(orphans)}"
+            )
 
             for row in orphans:
                 eid, name, etype = row
@@ -157,7 +251,9 @@ class GraphPruner:
                   AND metadata->>'weight' IS DISTINCT FROM '0.3'
             """)
             low_confidence = cur.fetchall()
-            report.details.append(f"Low-confidence entities (1.5b/7b only): {len(low_confidence)}")
+            report.details.append(
+                f"Low-confidence entities (1.5b/7b only): {len(low_confidence)}"
+            )
 
             if not dry_run:
                 for row in low_confidence:

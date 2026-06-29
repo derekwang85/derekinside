@@ -41,19 +41,36 @@ _PATTERNS = {
         re.compile(r"(?:module|from)\s+['\"]([\w./-]+)['\"]"),
     ],
     "api": [
-        re.compile(r'@(?:GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping)\(["\']([^"\']+)["\']'),
+        re.compile(
+            r'@(?:GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping)\(["\']([^"\']+)["\']'
+        ),
     ],
 }
 
 _GENERIC = {
-    "void", "int", "string", "boolean", "long", "double",
-    "true", "false", "null", "this", "return", "if", "else",
-    "for", "while", "class", "function", "import",
+    "void",
+    "int",
+    "string",
+    "boolean",
+    "long",
+    "double",
+    "true",
+    "false",
+    "null",
+    "this",
+    "return",
+    "if",
+    "else",
+    "for",
+    "while",
+    "class",
+    "function",
+    "import",
 }
 
 _LLM_PROMPT = """Extract named entities from this text. Types: class, function, module, api, concept.
 - class: Java/Python/TS class names
-- function: method/function names  
+- function: method/function names
 - module: package/import module names
 - api: API endpoint paths or system interfaces
 - concept: business domain concepts (e.g. KYC流程, 审批, 风险评估)
@@ -99,7 +116,7 @@ def extract_llm(text: str, model: str, client: httpx.Client) -> list[dict]:
     bs = json_str.find("{")
     be = json_str.rfind("}")
     if bs >= 0 and be > bs:
-        json_str = json_str[bs:be + 1]
+        json_str = json_str[bs : be + 1]
     try:
         data = json.loads(json_str)
     except json.JSONDecodeError:
@@ -110,7 +127,11 @@ def extract_llm(text: str, model: str, client: httpx.Client) -> list[dict]:
         if isinstance(e, dict) and "name" in e:
             name = e["name"].strip()
             etype = e.get("type", "concept")
-            if 2 <= len(name) <= 80 and etype != "variable" and re.search(r"[a-zA-Z0-9_]", name):
+            if (
+                2 <= len(name) <= 80
+                and etype != "variable"
+                and re.search(r"[a-zA-Z0-9_]", name)
+            ):
                 result.append({"name": name, "entity_type": etype})
     return result
 
@@ -131,46 +152,121 @@ def build_hybrid(regex: list[dict], llm: list[dict]) -> list[dict]:
 
 # 通用无效 pattern
 _NOISE = [
-    r'^\d+分钟$', r'^\d+次', r'^[\d.]+%$', r'^\d+\.?\d*$',
-    r'^[<>≥≤]', r'^K6_', r'^[A-Z_]{6,}$',
-    r'^Google Chrome$', r'^Safari$', r'^360浏览器$',
-    r'^Java 编程方法论',
-    r'^Remove Assignments', r'^Split Variable$', r'^Split Temp$',
-    r'^Episodic$', r'^Procedural$',
-    r'^http://', r'^\d+\.\d+\.\d+\.\d+',
-    r'^wecom_mcp', r'^sleep$', r'^assert$',
-    r'^candidate\(s\)', r'^data$', r'^channel$', r'^exclude$',
-    r'^Admin@123$', r'^localhost$', r'^\d{5}$',
-    r'^Math\.', r'^TimeUnit\.',
-    r'^fence\.', r'^\.env\.',
+    r"^\d+分钟$",
+    r"^\d+次",
+    r"^[\d.]+%$",
+    r"^\d+\.?\d*$",
+    r"^[<>≥≤]",
+    r"^K6_",
+    r"^[A-Z_]{6,}$",
+    r"^Google Chrome$",
+    r"^Safari$",
+    r"^360浏览器$",
+    r"^Java 编程方法论",
+    r"^Remove Assignments",
+    r"^Split Variable$",
+    r"^Split Temp$",
+    r"^Episodic$",
+    r"^Procedural$",
+    r"^http://",
+    r"^\d+\.\d+\.\d+\.\d+",
+    r"^wecom_mcp",
+    r"^sleep$",
+    r"^assert$",
+    r"^candidate\(s\)",
+    r"^data$",
+    r"^channel$",
+    r"^exclude$",
+    r"^Admin@123$",
+    r"^localhost$",
+    r"^\d{5}$",
+    r"^Math\.",
+    r"^TimeUnit\.",
+    r"^fence\.",
+    r"^\.env\.",
 ]
 
 _VALID_KEYWORDS = [
-    r'KYC', r'Buyer', r'Seller', r'买方', r'卖方',
-    r'Contract', r'WBS', r'ADR', r'DDD', r'CI', r'CD',
-    r'API', r'HTTP', r'REST', r'JWT', r'Token', r'Auth',
-    r'OpenClaw', r'TradeOMS', r'aITMS', r'WeCom|WeChat',
-    r'Gateway', r'Postgres|PostgreSQL',
-    r'Dashboard', r'驾驶舱', r'看板',
-    r'Observable', r'RxJava', r'SseEmitter', r'Reactive',
-    r'PagerDuty', r'Grafana', r'Loki', r'Prometheus',
-    r'Kubernetes', r'Docker', r'git', r'openssl',
-    r'cron', r'schedule', r'smoke.test',
-    r'Context', r'Propagation', r'Rerank', r'Embedding',
-    r'Hybrid', r'Vector', r'Semantic', r'Cache',
-    r'Maintenance', r'Verification', r'Summary', r'Trigger',
-    r'i18n', r'spike',
-    r'Bearer', r'Basic Auth',
-    r'reasonix', r'gbrain', r'Chunk', r'Embedder',
-    r'\w+门禁', r'\w+评审',
-    r'GitHub Actions', r'Docker Compose',
-    r'Long or Volatile',
-    r'Data Flow', r'Value Completeness', r'Feature Completeness',
+    r"KYC",
+    r"Buyer",
+    r"Seller",
+    r"买方",
+    r"卖方",
+    r"Contract",
+    r"WBS",
+    r"ADR",
+    r"DDD",
+    r"CI",
+    r"CD",
+    r"API",
+    r"HTTP",
+    r"REST",
+    r"JWT",
+    r"Token",
+    r"Auth",
+    r"OpenClaw",
+    r"TradeOMS",
+    r"aITMS",
+    r"WeCom|WeChat",
+    r"Gateway",
+    r"Postgres|PostgreSQL",
+    r"Dashboard",
+    r"驾驶舱",
+    r"看板",
+    r"Observable",
+    r"RxJava",
+    r"SseEmitter",
+    r"Reactive",
+    r"PagerDuty",
+    r"Grafana",
+    r"Loki",
+    r"Prometheus",
+    r"Kubernetes",
+    r"Docker",
+    r"git",
+    r"openssl",
+    r"cron",
+    r"schedule",
+    r"smoke.test",
+    r"Context",
+    r"Propagation",
+    r"Rerank",
+    r"Embedding",
+    r"Hybrid",
+    r"Vector",
+    r"Semantic",
+    r"Cache",
+    r"Maintenance",
+    r"Verification",
+    r"Summary",
+    r"Trigger",
+    r"i18n",
+    r"spike",
+    r"Bearer",
+    r"Basic Auth",
+    r"reasonix",
+    r"gbrain",
+    r"Chunk",
+    r"Embedder",
+    r"\w+门禁",
+    r"\w+评审",
+    r"GitHub Actions",
+    r"Docker Compose",
+    r"Long or Volatile",
+    r"Data Flow",
+    r"Value Completeness",
+    r"Feature Completeness",
 ]
 
 _MANUALLY_VALID = {
-    "Status", "Signal", "Preconditions", "Steps", "Overview",
-    "sustainability", "Cancel/Refund", "Standalone",
+    "Status",
+    "Signal",
+    "Preconditions",
+    "Steps",
+    "Overview",
+    "sustainability",
+    "Cancel/Refund",
+    "Standalone",
 }
 
 
@@ -181,9 +277,9 @@ def classify(name: str) -> str:
         return "valid"
     if any(re.search(p, name) for p in _VALID_KEYWORDS):
         return "valid"
-    if len(name) >= 3 and re.match(r'^[a-zA-Z][a-zA-Z0-9]+$', name):
+    if len(name) >= 3 and re.match(r"^[a-zA-Z][a-zA-Z0-9]+$", name):
         return "valid"
-    if len(name) >= 2 and re.search(r'[\u4e00-\u9fff]', name) and len(name) <= 20:
+    if len(name) >= 2 and re.search(r"[\u4e00-\u9fff]", name) and len(name) <= 20:
         return "valid"
     return "noise"
 
@@ -200,6 +296,7 @@ def build_gold(all_entities: dict[str, list[dict]]) -> set:
 
 # ── Evaluation ────────────────────────────────────────────────
 
+
 def evaluate(entities: list[dict], gold: set) -> dict:
     eset = {(e["name"], e["entity_type"]) for e in entities}
     tp = eset & gold
@@ -209,12 +306,18 @@ def evaluate(entities: list[dict], gold: set) -> dict:
     r = len(tp) / len(gold) if gold else 0
     f1 = 2 * p * r / (p + r) if (p + r) else 0
     return {
-        "extracted": len(eset), "tp": len(tp), "fp": len(fp), "fn": len(fn),
-        "p": round(p, 4), "r": round(r, 4), "f1": round(f1, 4),
+        "extracted": len(eset),
+        "tp": len(tp),
+        "fp": len(fp),
+        "fn": len(fn),
+        "p": round(p, 4),
+        "r": round(r, 4),
+        "f1": round(f1, 4),
     }
 
 
 # ── Main ──────────────────────────────────────────────────────
+
 
 def main():
     print("=" * 70)
@@ -262,7 +365,9 @@ def main():
             times[model] += (time.time() - t0) * 1000
 
         if (i + 1) % 20 == 0:
-            print(f"  ⏳ {i+1}/{len(chunks)} chunks... (1.5B={times.get('qwen2.5-coder:1.5b',0)/1000:.0f}s, 7B={times.get('qwen2.5-coder:7b',0)/1000:.0f}s)")
+            print(
+                f"  ⏳ {i+1}/{len(chunks)} chunks... (1.5B={times.get('qwen2.5-coder:1.5b',0)/1000:.0f}s, 7B={times.get('qwen2.5-coder:7b',0)/1000:.0f}s)"
+            )
 
     # 3. Dedup
     def dedup(entities: list[dict]) -> list[dict]:
@@ -300,7 +405,9 @@ def main():
 
     # 6. Print comparison table
     print(f"\n{'─'*70}")
-    print(f"  方案        |  提取  |  ✓正确  |  ✗噪音  |  ○漏掉  |  精确率 |  召回率 |   F1   |  耗时")
+    print(
+        "  方案        |  提取  |  ✓正确  |  ✗噪音  |  ○漏掉  |  精确率 |  召回率 |   F1   |  耗时"
+    )
     print(f"{'─'*70}")
 
     results = {}
@@ -321,7 +428,9 @@ def main():
             t = times["qwen2.5-coder:7b"] / 1000
 
         result["time_s"] = round(t, 1)
-        print(f"  {mode_name}  |  {result['extracted']:>3d}  |  {result['tp']:>3d}  |  {result['fp']:>3d}  |  {result['fn']:>3d}  |  {result['p']:.3f}  |  {result['r']:.3f}  |  {result['f1']:.3f}  |  {result['time_s']:.0f}s")
+        print(
+            f"  {mode_name}  |  {result['extracted']:>3d}  |  {result['tp']:>3d}  |  {result['fp']:>3d}  |  {result['fn']:>3d}  |  {result['p']:.3f}  |  {result['r']:.3f}  |  {result['f1']:.3f}  |  {result['time_s']:.0f}s"
+        )
         bar_p = "█" * int(result["p"] * 20) + "░" * (20 - int(result["p"] * 20))
         bar_r = "█" * int(result["r"] * 20) + "░" * (20 - int(result["r"] * 20))
         print(f"                   ──  精确率: {bar_p}  {result['p']:.1%}")
@@ -330,8 +439,10 @@ def main():
     print(f"{'─'*70}")
 
     # 7. Type breakdown per mode
-    print(f"\n📊 类型分布对比:")
-    print(f"  {'方案':<14s} {'总实体':>6s} {'class':>8s} {'function':>10s} {'module':>8s} {'api':>6s} {'concept':>9s}")
+    print("\n📊 类型分布对比:")
+    print(
+        f"  {'方案':<14s} {'总实体':>6s} {'class':>8s} {'function':>10s} {'module':>8s} {'api':>6s} {'concept':>9s}"
+    )
     for mode_name, ents in modes.items():
         breakdown = {}
         for e in ents:
@@ -343,13 +454,18 @@ def main():
         m = breakdown.get("module", 0)
         a = breakdown.get("api", 0)
         cp = breakdown.get("concept", 0)
-        print(f"  {mode_name:<14s} {total:>6d} {c:>8d} {f:>10d} {m:>8d} {a:>6d} {cp:>9d}")
+        print(
+            f"  {mode_name:<14s} {total:>6d} {c:>8d} {f:>10d} {m:>8d} {a:>6d} {cp:>9d}"
+        )
 
     # 8. Noise samples
-    print(f"\n📋 噪音样本 TOP10:")
+    print("\n📋 噪音样本 TOP10:")
     for mode_name, ents in modes.items():
-        noise = [(e["name"], e["entity_type"]) for e in ents
-                 if (e["name"], e["entity_type"]) not in gold]
+        noise = [
+            (e["name"], e["entity_type"])
+            for e in ents
+            if (e["name"], e["entity_type"]) not in gold
+        ]
         if noise:
             print(f"  {mode_name}: {', '.join(f'{n}({t})' for n, t in noise[:8])}")
 
@@ -361,8 +477,10 @@ def main():
         },
         "results": results,
         "type_breakdown": {
-            mn: {t: sum(1 for e in ents if e["entity_type"] == t) for t in
-                 set(e["entity_type"] for e in ents)}
+            mn: {
+                t: sum(1 for e in ents if e["entity_type"] == t)
+                for t in set(e["entity_type"] for e in ents)
+            }
             for mn, ents in modes.items()
         },
     }

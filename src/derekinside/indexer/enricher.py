@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any
 
 from derekinside.storage.graph import KnowledgeGraph
 from derekinside.drivers.ollama import OllamaModel
@@ -23,12 +22,12 @@ from derekinside.drivers.ollama import OllamaModel
 logger = logging.getLogger(__name__)
 
 _PROMPT = (
-    'Generate a one-sentence description for this entity in a CTRM/trading system.\n'
-    'Entity name: {name}\n'
-    'Entity type: {type}\n'
-    'Context (source code/document excerpts):\n{context}\n\n'
+    "Generate a one-sentence description for this entity in a CTRM/trading system.\n"
+    "Entity name: {name}\n"
+    "Entity type: {type}\n"
+    "Context (source code/document excerpts):\n{context}\n\n"
     'Return JSON: {{"description": "..."}}\n'
-    'No explanation. Max 30 words.'
+    "No explanation. Max 30 words."
 )
 
 
@@ -40,10 +39,13 @@ class EntityEnricher:
 
     def __init__(self, graph: KnowledgeGraph, model_name: str = "qwen2.5-coder:7b"):
         self._graph = graph
-        self._llm = OllamaModel("enricher", {
-            "api_model": model_name,
-            "url": "http://localhost:11434/api/generate",
-        })
+        self._llm = OllamaModel(
+            "enricher",
+            {
+                "api_model": model_name,
+                "url": "http://localhost:11434/api/generate",
+            },
+        )
 
     def enrich_entity(self, entity_id: int) -> dict | None:
         """Generate description for a single entity."""
@@ -58,13 +60,16 @@ class EntityEnricher:
             name, etype = row
 
             # Get context from connected chunks
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT c.chunk_text FROM chunks c
                 JOIN entity_chunks ec ON ec.chunk_id = c.id
                 WHERE ec.entity_id = %s
                 ORDER BY ec.relevance DESC
                 LIMIT 3
-            """, (entity_id,))
+            """,
+                (entity_id,),
+            )
             contexts = []
             for (text,) in cur.fetchall():
                 contexts.append(text[:500])
@@ -98,18 +103,22 @@ class EntityEnricher:
             logger.debug("Enrich entity %s failed: %s", name, e)
         return None
 
-    def enrich_batch(self, limit: int = 100, offset: int = 0,
-                     only_without_desc: bool = True) -> dict:
+    def enrich_batch(
+        self, limit: int = 100, offset: int = 0, only_without_desc: bool = True
+    ) -> dict:
         """Enrich batch of entities. Returns stats."""
         with self._graph.cursor() as cur:
             if only_without_desc:
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT id, name, entity_type FROM entities
                     WHERE metadata IS NULL
                        OR metadata->>'description' IS NULL
                        OR metadata->>'description' = ''
                     ORDER BY id LIMIT %s OFFSET %s
-                """, (limit, offset))
+                """,
+                    (limit, offset),
+                )
             else:
                 cur.execute(
                     "SELECT id, name, entity_type FROM entities "

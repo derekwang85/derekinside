@@ -43,17 +43,43 @@ _PATTERNS = {
         re.compile(r"(?:module|from)\s+['\"]([\w./-]+)['\"]"),
     ],
     "api": [
-        re.compile(r'@(?:GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping)\(["\']([^"\']+)["\']'),
-        re.compile(r"(?:router\.(?:get|post|put|delete)|app\.(?:get|post|put|delete))\(['\"](/[\w/{}]+)['\"]"),
+        re.compile(
+            r'@(?:GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping)\(["\']([^"\']+)["\']'
+        ),
+        re.compile(
+            r"(?:router\.(?:get|post|put|delete)|app\.(?:get|post|put|delete))\(['\"](/[\w/{}]+)['\"]"
+        ),
     ],
 }
 
 _GENERIC = {
-    "void", "int", "string", "boolean", "long", "double",
-    "true", "false", "null", "this", "return", "if", "else",
-    "for", "while", "class", "function", "import", "export",
-    "default", "extends", "implements", "throws", "new",
-    "type", "default", "extends",
+    "void",
+    "int",
+    "string",
+    "boolean",
+    "long",
+    "double",
+    "true",
+    "false",
+    "null",
+    "this",
+    "return",
+    "if",
+    "else",
+    "for",
+    "while",
+    "class",
+    "function",
+    "import",
+    "export",
+    "default",
+    "extends",
+    "implements",
+    "throws",
+    "new",
+    "type",
+    "default",
+    "extends",
 }
 
 _LLM_PROMPT = """Extract named entities from this text. Types: class, function, module, api, concept.
@@ -92,19 +118,32 @@ def extract_imports(text: str) -> list:
 def extract_llm(text: str, model: str, cid: int = 0) -> list:
     """Use curl subprocess to call Ollama (most reliable)."""
     prompt = _LLM_PROMPT.format(text=text[:1500])
-    payload = json.dumps({
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-        "options": {"num_predict": 300, "temperature": 0.1},
-    })
+    payload = json.dumps(
+        {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_predict": 300, "temperature": 0.1},
+        }
+    )
     try:
         r = subprocess.run(
-            ["curl", "-s", "-X", "POST", "http://localhost:11434/api/generate",
-             "-H", "Content-Type: application/json",
-             "-d", payload,
-             "--max-time", "60"],
-            capture_output=True, text=True, timeout=65
+            [
+                "curl",
+                "-s",
+                "-X",
+                "POST",
+                "http://localhost:11434/api/generate",
+                "-H",
+                "Content-Type: application/json",
+                "-d",
+                payload,
+                "--max-time",
+                "60",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=65,
         )
         if r.returncode != 0:
             print(f"  ⚠️  Chunk #{cid}: curl error (rc={r.returncode})", file=sys.stderr)
@@ -125,7 +164,7 @@ def extract_llm(text: str, model: str, cid: int = 0) -> list:
     bs = json_str.find("{")
     be = json_str.rfind("}")
     if bs >= 0 and be > bs:
-        json_str = json_str[bs:be + 1]
+        json_str = json_str[bs : be + 1]
     try:
         data = json.loads(json_str)
     except json.JSONDecodeError:
@@ -136,7 +175,11 @@ def extract_llm(text: str, model: str, cid: int = 0) -> list:
         if isinstance(e, dict) and "name" in e:
             name = e["name"].strip()
             etype = e.get("type", "concept")
-            if 2 <= len(name) <= 80 and etype != "variable" and re.search(r"[a-zA-Z0-9_]", name):
+            if (
+                2 <= len(name) <= 80
+                and etype != "variable"
+                and re.search(r"[a-zA-Z0-9_]", name)
+            ):
                 result.append({"name": name, "entity_type": etype})
     return result
 
@@ -154,8 +197,12 @@ def dedup(entities: list) -> list:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", required=True, choices=["regex", "1.5b", "7b", "hybrid-7b"])
-    parser.add_argument("--batch", type=int, default=20, help="Progress report interval")
+    parser.add_argument(
+        "--mode", required=True, choices=["regex", "1.5b", "7b", "hybrid-7b"]
+    )
+    parser.add_argument(
+        "--batch", type=int, default=20, help="Progress report interval"
+    )
     args = parser.parse_args()
 
     mode = args.mode
@@ -176,7 +223,11 @@ def main():
     print(f"📦 {total} chunks loaded", file=sys.stderr)
 
     all_entities = []
-    llm_model = "qwen2.5-coder:" + mode.replace("hybrid-", "") if "hybrid" in mode or mode in ("1.5b", "7b") else None
+    llm_model = (
+        "qwen2.5-coder:" + mode.replace("hybrid-", "")
+        if "hybrid" in mode or mode in ("1.5b", "7b")
+        else None
+    )
     t0 = time.time()
 
     for i, (cid, text) in enumerate(chunks):
@@ -205,8 +256,11 @@ def main():
                 llm_ents = extract_llm(text, llm_model, cid)
                 if llm_ents is None:
                     llm_ents = []
-            for e in (llm_ents or []):
-                if e["name"] not in regex_names and e["entity_type"] in ("concept", "api"):
+            for e in llm_ents or []:
+                if e["name"] not in regex_names and e["entity_type"] in (
+                    "concept",
+                    "api",
+                ):
                     all_entities.append(e)
                     regex_names.add(e["name"])
 
@@ -215,12 +269,18 @@ def main():
             elapsed = time.time() - t0
             rate = (i + 1) / elapsed
             remaining = (total - i - 1) / rate if rate > 0 else 0
-            print(f"  ⏳ {i+1}/{total} (chunk #{cid}, {rate:.1f}/s, ETA {remaining/60:.0f}min)", file=sys.stderr)
+            print(
+                f"  ⏳ {i+1}/{total} (chunk #{cid}, {rate:.1f}/s, ETA {remaining/60:.0f}min)",
+                file=sys.stderr,
+            )
         elif (i + 1) % batch_size == 0:
             elapsed = time.time() - t0
             rate = (i + 1) / elapsed
             remaining = (total - i - 1) / rate if rate > 0 else 0
-            print(f"  ⏳ {i+1}/{total} ({rate:.1f}/s, ETA {remaining/60:.0f}min)...", file=sys.stderr)
+            print(
+                f"  ⏳ {i+1}/{total} ({rate:.1f}/s, ETA {remaining/60:.0f}min)...",
+                file=sys.stderr,
+            )
 
     elapsed = time.time() - t0
     final_ents = dedup(all_entities)

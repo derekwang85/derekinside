@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -139,8 +139,7 @@ class ModelEndpoint(ABC):
         self._config = config
         # If user provided explicit four-dimensional attributes, create profile immediately
         has_user_profile = any(
-            k in config for k in
-            ["intelligence", "cost_tier", "speed_tier", "quality"]
+            k in config for k in ["intelligence", "cost_tier", "speed_tier", "quality"]
         )
         if has_user_profile:
             self._profile = ModelProfile.from_config(config)
@@ -189,6 +188,7 @@ class ModelEndpoint(ABC):
         Tries embed first (most models support it), then extract.
         """
         import time
+
         start = time.time()
         try:
             # Try the model's primary capability
@@ -206,7 +206,12 @@ class ModelEndpoint(ABC):
             elapsed = int((time.time() - start) * 1000)
             return {"status": "ok", "latency_ms": elapsed, "name": self._name}
         except CapabilityNotSupported:
-            return {"status": "ok", "latency_ms": 0, "name": self._name, "note": "no supported capability checked"}
+            return {
+                "status": "ok",
+                "latency_ms": 0,
+                "name": self._name,
+                "note": "no supported capability checked",
+            }
         except Exception as e:
             return {"status": "down", "error": str(e)[:200], "name": self._name}
 

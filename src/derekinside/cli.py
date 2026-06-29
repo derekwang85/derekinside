@@ -15,7 +15,6 @@ import time
 from pathlib import Path
 
 import click
-from pathlib import Path
 
 from derekinside.config import load_config
 from derekinside.storage.pgvector import VectorStore
@@ -25,12 +24,12 @@ from derekinside.search.hybrid import HybridSearch, SearchRequest
 from derekinside.search.propagation import GraphPropagator
 from derekinside.engine.engine import Engine
 from derekinside.indexer.relation_inferrer import RelationInferrer
-from derekinside.indexer.merge import merge_entity_sets, merge_relation_sets
 from derekinside.indexer.entity_resolver import EntityResolver
-from derekinside.indexer.graph_pruner import GraphPruner
 from derekinside.storage.subgraph import build_subgraph
 from derekinside.indexer.fusion import EntityFusion
 from derekinside.indexer.consensus import ConsensusEngine
+from derekinside.indexer.embedder import Embedder
+from derekinside.indexer.entity import EntityExtractor
 from derekinside.indexer.enricher import EntityEnricher
 
 # ── Logging ────────────────────────────────────────────────────
@@ -75,6 +74,26 @@ class DereContext:
         # Engine — unified model registry + pipeline resolver + profiler
         # Build model config from the flat config structure
         self.engine = Engine(self.cfg.to_dict())
+        # Embedder — used by HTTP bridge for search
+        raw_models = self.cfg._raw.get("models", {})
+        emb_cfg = raw_models.get("bge-m3", {})
+        self.embedder = Embedder(
+            url=emb_cfg.get("url", "http://localhost:11434/api/embed"),
+            model=emb_cfg.get("api_model", "bge-m3"),
+            dimensions=emb_cfg.get("dimensions", 1024),
+        )
+        # Extractor — used by HTTP bridge for entity extraction
+        ee = self.cfg.knowledge_graph.entity_extraction
+        ext_model = self.cfg.knowledge_graph.extraction_model or "qwen2.5-coder:7b"
+        # Parse mode to determine use_llm
+        use_llm = ee.mode not in ("", "regex")
+        self.extractor = EntityExtractor(
+            enabled=self.cfg.knowledge_graph.enabled,
+            use_llm=use_llm,
+            llm_min_chars=ee.llm_min_chars,
+            model=ext_model,
+            mode=ee.mode,
+        )
 
     def connect(self):
         self.store.connect()
@@ -271,7 +290,7 @@ def mine(click_ctx, path, wing, room, mode, pattern, dry_run):
             rel = f.relative_to(target) if target.is_dir() else f.name
             click.echo(f"   📄 {rel}")
         if len(files) > 20:
-            click.echo(f"   ... +{len(files)-20} more")
+            click.echo(f"   ... +{len(files) - 20} more")
         return
 
     imported = 0
@@ -336,11 +355,17 @@ def mine(click_ctx, path, wing, room, mode, pattern, dry_run):
 @click.option("--rerank", is_flag=True, help="Enable LLM reranking")
 @click.option("--kg", "use_kg", is_flag=True, help="Enable graph propagation")
 @click.option("--recent", is_flag=True, help="Enable temporal boost")
-@click.option("--before", default=None, help="Only chunks created before this ISO datetime")
-@click.option("--after", default=None, help="Only chunks created after this ISO datetime")
+@click.option(
+    "--before", default=None, help="Only chunks created before this ISO datetime"
+)
+@click.option(
+    "--after", default=None, help="Only chunks created after this ISO datetime"
+)
 @click.option("--json", "json_out", is_flag=True, help="Output as JSON")
 @click.pass_context
-def search(click_ctx, query, wing, room, top_k, rerank, use_kg, recent, before, after, json_out):
+def search(
+    click_ctx, query, wing, room, top_k, rerank, use_kg, recent, before, after, json_out
+):
     """Semantic search across indexed knowledge.
 
     Examples:
@@ -398,7 +423,7 @@ def search(click_ctx, query, wing, room, top_k, rerank, use_kg, recent, before, 
     for i, r in enumerate(resp.results):
         score_str = f"{r.score:.3f}" if r.score else "---"
         wing_room = f"{r.wing_name}/{r.room_name}" if r.wing_name else ""
-        click.echo(f"\n[{i+1}] (score={score_str}) {wing_room}")
+        click.echo(f"\n[{i + 1}] (score={score_str}) {wing_room}")
         click.echo(f"    📄 {r.source_path or r.title or r.slug or '(unknown)'}")
         preview = r.chunk_text[:200].replace("\n", " ")
         click.echo(f"    {preview}...")
@@ -565,6 +590,7 @@ def graph_subgraph(click_ctx, entity, depth, ascii):
         click.echo(sg.to_ascii())
     else:
         import json
+
         click.echo(json.dumps(sg.to_dict(), ensure_ascii=False, indent=2))
 
 
@@ -614,7 +640,9 @@ def graph_fuse(click_ctx, dry_run):
 
 @graph.command(name="enrich")
 @click.option("--limit", default=50, type=int, help="Max entities to enrich")
-@click.option("--model", default="qwen2.5-coder:7b", help="LLM model for description generation")
+@click.option(
+    "--model", default="qwen2.5-coder:7b", help="LLM model for description generation"
+)
 @click.pass_context
 def graph_enrich(click_ctx, limit, model):
     """Generate descriptions for entities using offline LLM."""
@@ -622,15 +650,25 @@ def graph_enrich(click_ctx, limit, model):
     enricher = EntityEnricher(dere.graph, model_name=model)
     click.echo(f"Enriching up to {limit} entities without descriptions...")
     result = enricher.enrich_batch(limit=limit)
-    click.echo(f"Done: {result['enriched']} enriched, {result['failed']} failed, out of {result['total']}")
+    click.echo(
+        f"Done: {result['enriched']} enriched, {result['failed']} failed, out of {result['total']}"
+    )
 
 
 @graph.command(name="build")
 @click.option("--batch", default=20, type=int, help="Chunks per batch")
 @click.option("--max-chunks", default=0, type=int, help="Max chunks to process (0=all)")
-@click.option("--llm", is_flag=True, help="[Deprecated] Enable LLM extraction (use --mode instead)")
-@click.option("--mode", default="", type=click.Choice(["", "regex", "1.5b", "7b", "hybrid-1.5b", "hybrid-7b"]),
-              help="Entity extraction mode (overrides config)")
+@click.option(
+    "--llm",
+    is_flag=True,
+    help="[Deprecated] Enable LLM extraction (use --mode instead)",
+)
+@click.option(
+    "--mode",
+    default="",
+    type=click.Choice(["", "regex", "1.5b", "7b", "hybrid-1.5b", "hybrid-7b"]),
+    help="Entity extraction mode (overrides config)",
+)
 @click.option("--list-modes", is_flag=True, help="List available extraction modes")
 @click.pass_context
 def graph_build(click_ctx, batch, max_chunks, llm, mode, list_modes):
@@ -652,7 +690,9 @@ def graph_build(click_ctx, batch, max_chunks, llm, mode, list_modes):
 
     # Mode selection is now handled by PipelineResolver
     # CLI --mode flag overrides the pipeline strategy
-    if effective_mode and effective_mode != dere.cfg.pipeline.get('extract', {}).get('mode', ''):
+    if effective_mode and effective_mode != dere.cfg.pipeline.get("extract", {}).get(
+        "mode", ""
+    ):
         logger.info("CLI mode override: %s", effective_mode)
 
     click.echo(f"🧠 Entity extraction mode: {effective_mode}")
@@ -708,7 +748,8 @@ def graph_build(click_ctx, batch, max_chunks, llm, mode, list_modes):
                     cur.execute(
                         "SELECT p.source_path FROM pages p "
                         "JOIN chunks c ON c.page_id = p.id "
-                        "WHERE c.id = %s", (chunk_id,)
+                        "WHERE c.id = %s",
+                        (chunk_id,),
                     )
                     page_row = cur.fetchone()
                     source_path = page_row[0] if page_row else ""
@@ -716,25 +757,29 @@ def graph_build(click_ctx, batch, max_chunks, llm, mode, list_modes):
 
                 # Step 3: Entity extraction result
                 entities = []
-                if hasattr(result, 'entities'):
+                if hasattr(result, "entities"):
                     entities = result.entities
                 elif isinstance(result, dict):
-                    entities = result.get('entities', [])
+                    entities = result.get("entities", [])
 
                 # Step 4: Resolve entity names (dedup)
                 resolved_map = {}
                 for ent in entities:
-                    name = ent.name if hasattr(ent, 'name') else ent.get('name', '')
+                    name = ent.name if hasattr(ent, "name") else ent.get("name", "")
                     if name:
                         resolved_map[name] = resolver.resolve(name)
 
                 # Step 5: Create entities and build name->id map
                 entity_name_map = {}
                 for ent in entities:
-                    name = ent.name if hasattr(ent, 'name') else ent.get('name', '')
+                    name = ent.name if hasattr(ent, "name") else ent.get("name", "")
                     if not name:
                         continue
-                    etype = ent.entity_type if hasattr(ent, 'entity_type') else ent.get('type', 'concept')
+                    etype = (
+                        ent.entity_type
+                        if hasattr(ent, "entity_type")
+                        else ent.get("type", "concept")
+                    )
                     canonical, _ = resolved_map.get(name, (name, False))
                     eid = dere.graph.get_or_create_entity(canonical, etype)
                     entity_name_map[name] = eid
@@ -747,15 +792,23 @@ def graph_build(click_ctx, batch, max_chunks, llm, mode, list_modes):
 
                 # Step 7: Relations from LLM extraction
                 relations = []
-                if hasattr(result, 'relations'):
+                if hasattr(result, "relations"):
                     relations = result.relations
                 elif isinstance(result, dict):
-                    relations = result.get('relations', [])
+                    relations = result.get("relations", [])
 
                 for rel in relations:
-                    source = rel.source if hasattr(rel, 'source') else rel.get('source', '')
-                    target = rel.target if hasattr(rel, 'target') else rel.get('target', '')
-                    rtype = rel.relation_type if hasattr(rel, 'relation_type') else rel.get('type', 'related')
+                    source = (
+                        rel.source if hasattr(rel, "source") else rel.get("source", "")
+                    )
+                    target = (
+                        rel.target if hasattr(rel, "target") else rel.get("target", "")
+                    )
+                    rtype = (
+                        rel.relation_type
+                        if hasattr(rel, "relation_type")
+                        else rel.get("type", "related")
+                    )
                     src_eid = entity_name_map.get(source)
                     tgt_eid = entity_name_map.get(target)
                     if src_eid and tgt_eid:
@@ -769,42 +822,22 @@ def graph_build(click_ctx, batch, max_chunks, llm, mode, list_modes):
                         src_eid = entity_name_map.get(rel.source)
                         tgt_eid = entity_name_map.get(rel.target)
                         if rel.source and not src_eid:
-                            src_eid = dere.graph.get_or_create_entity(rel.source, 'class')
+                            src_eid = dere.graph.get_or_create_entity(
+                                rel.source, "class"
+                            )
                             entity_name_map[rel.source] = src_eid
                             entity_count += 1
                         if rel.target and not tgt_eid:
-                            tgt_eid = dere.graph.get_or_create_entity(rel.target, 'module')
+                            tgt_eid = dere.graph.get_or_create_entity(
+                                rel.target, "module"
+                            )
                             entity_name_map[rel.target] = tgt_eid
                             entity_count += 1
                         if src_eid and tgt_eid:
-                            dere.graph.add_relation(src_eid, tgt_eid, rel.relation_type, rel.weight)
+                            dere.graph.add_relation(
+                                src_eid, tgt_eid, rel.relation_type, rel.weight
+                            )
                             relation_count += 1
-                if result.is_empty():
-                    continue
-
-                # Create entities and build name→id map
-                entity_name_map: dict[str, int] = {}
-                for ent in result.entities:
-                    eid = dere.graph.get_or_create_entity(ent.name, ent.entity_type)
-                    entity_name_map[ent.name] = eid
-                    entity_count += 1
-
-                # Link entities to this chunk
-                for name, eid in entity_name_map.items():
-                    dere.graph.link_entity_to_chunk(eid, chunk_id, relevance=1.0)
-                    link_count += 1
-
-                # Create relations
-                for rel in result.relations:
-                    if rel.source in entity_name_map and rel.target in entity_name_map:
-                        dere.graph.add_relation(
-                            entity_name_map[rel.source],
-                            entity_name_map[rel.target],
-                            rel.relation_type,
-                            1.0,
-                        )
-                        relation_count += 1
-
             except Exception as e:
                 errors += 1
                 if errors <= 5:

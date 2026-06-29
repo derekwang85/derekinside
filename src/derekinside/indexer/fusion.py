@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any
 
 from derekinside.storage.graph import KnowledgeGraph
 from derekinside.indexer.entity_resolver import EntityResolver
@@ -86,9 +85,14 @@ class EntityFusion:
         canonical_groups: dict[str, list[dict]] = {}
         for eid, name, etype, wing in rows:
             canonical, _ = self._resolver.resolve(name)
-            canonical_groups.setdefault(canonical, []).append({
-                "id": eid, "name": name, "type": etype, "wing": wing,
-            })
+            canonical_groups.setdefault(canonical, []).append(
+                {
+                    "id": eid,
+                    "name": name,
+                    "type": etype,
+                    "wing": wing,
+                }
+            )
 
         # Find duplicate groups (same canonical name in >1 wing or >1 entity)
         for canonical, group in canonical_groups.items():
@@ -103,7 +107,13 @@ class EntityFusion:
 
             # Pick the "best" entity to keep (prefer higher precision type)
             # Priority: class > function > module > api > concept
-            type_priority = {"class": 0, "function": 1, "module": 2, "api": 3, "concept": 4}
+            type_priority = {
+                "class": 0,
+                "function": 1,
+                "module": 2,
+                "api": 3,
+                "concept": 4,
+            }
             group.sort(key=lambda e: type_priority.get(e["type"], 5))
 
             keep = group[0]
@@ -126,7 +136,8 @@ class EntityFusion:
                 try:
                     # Transfer chunk links
                     with self._graph.cursor() as cur:
-                        cur.execute("""
+                        cur.execute(
+                            """
                             UPDATE entity_chunks
                             SET entity_id = %s
                             WHERE entity_id = %s
@@ -134,13 +145,16 @@ class EntityFusion:
                                 SELECT 1 FROM entity_chunks
                                 WHERE entity_id = %s AND chunk_id = entity_chunks.chunk_id
                             )
-                        """, (keep["id"], dup_id, keep["id"]))
+                        """,
+                            (keep["id"], dup_id, keep["id"]),
+                        )
                         report.chunks_relinked += cur.rowcount
 
                     # Transfer relations from this duplicate
                     with self._graph.cursor() as cur:
                         # Incoming relations: point to keeper
-                        cur.execute("""
+                        cur.execute(
+                            """
                             UPDATE relations
                             SET target_entity_id = %s
                             WHERE target_entity_id = %s
@@ -150,11 +164,14 @@ class EntityFusion:
                                 AND target_entity_id = %s
                                 AND relation_type = relations.relation_type
                             )
-                        """, (keep["id"], dup_id, keep["id"]))
+                        """,
+                            (keep["id"], dup_id, keep["id"]),
+                        )
                         report.relations_transferred += cur.rowcount
 
                         # Outgoing relations: point from keeper
-                        cur.execute("""
+                        cur.execute(
+                            """
                             UPDATE relations
                             SET source_entity_id = %s
                             WHERE source_entity_id = %s
@@ -164,7 +181,9 @@ class EntityFusion:
                                 AND target_entity_id = relations.target_entity_id
                                 AND relation_type = relations.relation_type
                             )
-                        """, (keep["id"], dup_id, keep["id"]))
+                        """,
+                            (keep["id"], dup_id, keep["id"]),
+                        )
                         report.relations_transferred += cur.rowcount
 
                     # Delete relations pointing to the duplicate
@@ -189,7 +208,9 @@ class EntityFusion:
                     report.deleted += 1
 
                 except Exception as e:
-                    logger.error("Failed to merge entity #%d into #%d: %s", dup_id, keep["id"], e)
+                    logger.error(
+                        "Failed to merge entity #%d into #%d: %s", dup_id, keep["id"], e
+                    )
                     report.errors += 1
 
         return report
@@ -202,6 +223,7 @@ class EntityFusion:
         elapsed = time.time() - start
         logger.info(
             "Fusion complete: %s (%.1fs)",
-            report.summary(), elapsed,
+            report.summary(),
+            elapsed,
         )
         return report

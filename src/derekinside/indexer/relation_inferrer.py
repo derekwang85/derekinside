@@ -71,7 +71,9 @@ class RelationInferrer:
             "maven_dependency": self._maven_dependency,
         }
 
-    def infer(self, chunk_text: str, chunk_id: int, file_ext: str) -> list[InferredRelation]:
+    def infer(
+        self, chunk_text: str, chunk_id: int, file_ext: str
+    ) -> list[InferredRelation]:
         """
         Run all applicable patterns on a chunk.
         Returns a flat list of InferredRelation.
@@ -109,7 +111,7 @@ class RelationInferrer:
     # ── Pattern: extends (class inheritance) ──
 
     _PAT_EXTENDS = re.compile(
-        r'(?:class|interface|abstract class)\s+(\w+)\s+extends\s+([\w.,\s<>{},()]+?)(?:\s+implements|\s*\{|\s*$)',
+        r"(?:class|interface|abstract class)\s+(\w+)\s+extends\s+([\w.,\s<>{},()]+?)(?:\s+implements|\s*\{|\s*$)",
         re.DOTALL,
     )
 
@@ -119,21 +121,24 @@ class RelationInferrer:
             child = m.group(1).strip()
             parents_raw = m.group(2).strip()
             # Split by comma, strip generics
-            for parent in re.split(r'\s*,\s*', parents_raw):
-                parent = re.sub(r'<[^>]+>', '', parent).strip()
+            for parent in re.split(r"\s*,\s*", parents_raw):
+                parent = re.sub(r"<[^>]+>", "", parent).strip()
                 # Only keep if it looks like a class name (starts uppercase)
                 if parent and parent[0].isupper():
-                    results.append(InferredRelation(
-                        source=child, target=parent,
-                        relation_type="extends",
-                        weight=1.0,
-                    ))
+                    results.append(
+                        InferredRelation(
+                            source=child,
+                            target=parent,
+                            relation_type="extends",
+                            weight=1.0,
+                        )
+                    )
         return results
 
     # ── Pattern: implements ──
 
     _PAT_IMPLEMENTS = re.compile(
-        r'(?:class|abstract class)\s+(\w+)(?:\s+extends\s+\w+)?\s+implements\s+([\w.,\s<>{},()]+?)\s*\{',
+        r"(?:class|abstract class)\s+(\w+)(?:\s+extends\s+\w+)?\s+implements\s+([\w.,\s<>{},()]+?)\s*\{",
         re.DOTALL,
     )
 
@@ -142,21 +147,24 @@ class RelationInferrer:
         for m in self._PAT_IMPLEMENTS.finditer(text):
             child = m.group(1).strip()
             ifaces_raw = m.group(2).strip()
-            for iface in re.split(r'\s*,\s*', ifaces_raw):
-                iface = re.sub(r'<[^>]+>', '', iface).strip()
+            for iface in re.split(r"\s*,\s*", ifaces_raw):
+                iface = re.sub(r"<[^>]+>", "", iface).strip()
                 if iface and iface[0].isupper():
-                    results.append(InferredRelation(
-                        source=child, target=iface,
-                        relation_type="implements",
-                        weight=1.0,
-                    ))
+                    results.append(
+                        InferredRelation(
+                            source=child,
+                            target=iface,
+                            relation_type="implements",
+                            weight=1.0,
+                        )
+                    )
         return results
 
     # ── Pattern: @Autowired (dependency injection) ──
 
     _PAT_AUTOWIRED = re.compile(
-        r'@(?:Autowired|Inject|Resource)\s*\n?\s*'
-        r'(?:private|public|protected)\s+(\w+)\s+(\w+)',
+        r"@(?:Autowired|Inject|Resource)\s*\n?\s*"
+        r"(?:private|public|protected)\s+(\w+)\s+(\w+)",
     )
 
     def _java_autowired(self, text: str) -> list[InferredRelation]:
@@ -165,12 +173,15 @@ class RelationInferrer:
             type_name = m.group(1).strip()
             field_name = m.group(2).strip()
             if type_name and type_name[0].isupper():
-                results.append(InferredRelation(
-                    source=type_name, target=field_name,
-                    relation_type="depends_on",
-                    weight=1.0,
-                    metadata={"injection_site": field_name},
-                ))
+                results.append(
+                    InferredRelation(
+                        source=type_name,
+                        target=field_name,
+                        relation_type="depends_on",
+                        weight=1.0,
+                        metadata={"injection_site": field_name},
+                    )
+                )
         return results
 
     # ── Pattern: @RequestMapping + @PostMapping/... (API routes) ──
@@ -179,7 +190,7 @@ class RelationInferrer:
         r'@(?:RequestMapping|RestController)\s*\(\s*(?:"([^"]+)"|\'(?:[^\']+)\')\s*\)',
     )
     _PAT_METHOD_MAPPING = re.compile(
-        r'@(GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping|RequestMapping)'
+        r"@(GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping|RequestMapping)"
         r'\s*\(\s*(?:"([^"]+)"|\'(?:[^\']+)\')\s*\)',
     )
 
@@ -196,33 +207,39 @@ class RelationInferrer:
             method_path = m.group(2) if m.lastindex and m.group(2) else ""
             full_path = base_path + (method_path if method_path else "")
             if full_path:
-                results.append(InferredRelation(
-                    source=full_path, target=http_method,
-                    relation_type="serves_path",
-                    weight=1.0,
-                ))
+                results.append(
+                    InferredRelation(
+                        source=full_path,
+                        target=http_method,
+                        relation_type="serves_path",
+                        weight=1.0,
+                    )
+                )
 
         # Also extract method names near mapping annotations
         pat_method = re.compile(
-            r'@(?:Get|Post|Put|Delete|Patch|Request)Mapping.*?\n'
-            r'(?:public|private|protected)?\s*(?:\w+\s+)?(\w+)\s*\(',
+            r"@(?:Get|Post|Put|Delete|Patch|Request)Mapping.*?\n"
+            r"(?:public|private|protected)?\s*(?:\w+\s+)?(\w+)\s*\(",
             re.DOTALL,
         )
         for m in pat_method.finditer(text):
             method = m.group(1).strip()
-            results.append(InferredRelation(
-                source=method, target=base_path or "/",
-                relation_type="serves_path",
-                weight=0.8,
-            ))
+            results.append(
+                InferredRelation(
+                    source=method,
+                    target=base_path or "/",
+                    relation_type="serves_path",
+                    weight=0.8,
+                )
+            )
 
         return results
 
     # ── Pattern: @Service / @Component / @Repository (stereotype) ──
 
     _PAT_STEREOTYPE = re.compile(
-        r'@(Service|Component|Repository|Controller|RestController|Configuration)\s*\n?\s*'
-        r'(?:public\s+)?(?:abstract\s+)?(?:class|interface)\s+(\w+)'
+        r"@(Service|Component|Repository|Controller|RestController|Configuration)\s*\n?\s*"
+        r"(?:public\s+)?(?:abstract\s+)?(?:class|interface)\s+(\w+)"
     )
 
     def _java_stereotype(self, text: str) -> list[InferredRelation]:
@@ -230,45 +247,65 @@ class RelationInferrer:
         for m in self._PAT_STEREOTYPE.finditer(text):
             annotation = m.group(1).strip()
             class_name = m.group(2).strip()
-            results.append(InferredRelation(
-                source=class_name, target=annotation.lower(),
-                relation_type="is_a",
-                weight=0.9,
-                metadata={"stereotype": annotation},
-            ))
+            results.append(
+                InferredRelation(
+                    source=class_name,
+                    target=annotation.lower(),
+                    relation_type="is_a",
+                    weight=0.9,
+                    metadata={"stereotype": annotation},
+                )
+            )
         return results
 
     # ── Pattern: field declarations (class composition) ──
 
     _PAT_FIELD = re.compile(
-        r'(?:private|public|protected)\s+(\w+(?:<[^>]+>)?)\s+(\w+)\s*[=;]',
+        r"(?:private|public|protected)\s+(\w+(?:<[^>]+>)?)\s+(\w+)\s*[=;]",
     )
 
     def _java_field(self, text: str) -> list[InferredRelation]:
         results = []
         seen = set()
         for m in self._PAT_FIELD.finditer(text):
-            type_name = re.sub(r'<[^>]+>', '', m.group(1)).strip()
+            type_name = re.sub(r"<[^>]+>", "", m.group(1)).strip()
             field_name = m.group(2).strip()
             # Skip primitives, strings, and common types
-            if type_name.lower() in {"int", "long", "double", "float", "boolean",
-                                      "string", "void", "list", "set", "map",
-                                      "integer", "byte", "short", "char", "object"}:
+            if type_name.lower() in {
+                "int",
+                "long",
+                "double",
+                "float",
+                "boolean",
+                "string",
+                "void",
+                "list",
+                "set",
+                "map",
+                "integer",
+                "byte",
+                "short",
+                "char",
+                "object",
+            }:
                 continue
             if type_name and type_name[0].isupper():
                 key = (type_name, field_name)
                 if key not in seen:
                     seen.add(key)
-                    results.append(InferredRelation(
-                        source=type_name, target=field_name,
-                        relation_type="has_field",
-                        weight=0.7,
-                    ))
+                    results.append(
+                        InferredRelation(
+                            source=type_name,
+                            target=field_name,
+                            relation_type="has_field",
+                            weight=0.7,
+                        )
+                    )
         return results
 
     # ── Pattern: Java imports ──
 
-    _PAT_JAVA_IMPORT = re.compile(r'^import\s+([\w.]+(?:\.\w+)?)\s*;', re.MULTILINE)
+    _PAT_JAVA_IMPORT = re.compile(r"^import\s+([\w.]+(?:\.\w+)?)\s*;", re.MULTILINE)
 
     def _java_import(self, text: str, chunk_id: int) -> list[InferredRelation]:
         results = []
@@ -282,11 +319,14 @@ class RelationInferrer:
                     if p not in imported:
                         imported.add(p)
                         module = parts[-2] if len(parts) >= 2 else ""
-                        results.append(InferredRelation(
-                            source=p, target=module,
-                            relation_type="imports",
-                            weight=0.6,
-                        ))
+                        results.append(
+                            InferredRelation(
+                                source=p,
+                                target=module,
+                                relation_type="imports",
+                                weight=0.6,
+                            )
+                        )
                     break
         return results
 
@@ -305,11 +345,14 @@ class RelationInferrer:
                 name = name.strip().split("/")[-1].split(".")[0]
                 if name and name not in names:
                     names.add(name)
-                    results.append(InferredRelation(
-                        source=name, target="",
-                        relation_type="imports",
-                        weight=0.5,
-                    ))
+                    results.append(
+                        InferredRelation(
+                            source=name,
+                            target="",
+                            relation_type="imports",
+                            weight=0.5,
+                        )
+                    )
         return results
 
     # ── Pattern: Python imports ──
@@ -317,25 +360,26 @@ class RelationInferrer:
     def _python_import(self, text: str, chunk_id: int) -> list[InferredRelation]:
         results = []
         names = set()
-        for m in re.finditer(
-            r'(?:from\s+(\S+)\s+import\s+(\w+)|import\s+(\w+))', text
-        ):
+        for m in re.finditer(r"(?:from\s+(\S+)\s+import\s+(\w+)|import\s+(\w+))", text):
             name = m.group(2) or m.group(3) or ""
             if name and name not in names:
                 names.add(name)
                 module = m.group(1) or m.group(3) or ""
-                results.append(InferredRelation(
-                    source=name, target=module,
-                    relation_type="imports",
-                    weight=0.5,
-                ))
+                results.append(
+                    InferredRelation(
+                        source=name,
+                        target=module,
+                        relation_type="imports",
+                        weight=0.5,
+                    )
+                )
         return results
 
     # ── Pattern: Maven/Gradle dependencies ──
 
     _PAT_MAVEN_DEP = re.compile(
-        r'<dependency>\s*<groupId>([^<]+)</groupId>\s*'
-        r'<artifactId>([^<]+)</artifactId>',
+        r"<dependency>\s*<groupId>([^<]+)</groupId>\s*"
+        r"<artifactId>([^<]+)</artifactId>",
         re.DOTALL,
     )
 
@@ -346,12 +390,15 @@ class RelationInferrer:
             artifact = m.group(2).strip()
             if artifact not in seen:
                 seen.add(artifact)
-                results.append(InferredRelation(
-                    source=artifact, target=m.group(1).strip(),
-                    relation_type="depends_on",
-                    weight=0.8,
-                    metadata={"dep_type": "maven"},
-                ))
+                results.append(
+                    InferredRelation(
+                        source=artifact,
+                        target=m.group(1).strip(),
+                        relation_type="depends_on",
+                        weight=0.8,
+                        metadata={"dep_type": "maven"},
+                    )
+                )
         return results
 
     # ── Pattern: YAML references (spring config, bean refs) ──
@@ -359,10 +406,13 @@ class RelationInferrer:
     def _yaml_reference(self, text: str) -> list[InferredRelation]:
         results = []
         # Match property references like: ${some.property}
-        for m in re.finditer(r'\$\{(\w+(?:\.\w+)+)\}', text):
-            results.append(InferredRelation(
-                source=m.group(1), target="config",
-                relation_type="configures",
-                weight=0.4,
-            ))
+        for m in re.finditer(r"\$\{(\w+(?:\.\w+)+)\}", text):
+            results.append(
+                InferredRelation(
+                    source=m.group(1),
+                    target="config",
+                    relation_type="configures",
+                    weight=0.4,
+                )
+            )
         return results

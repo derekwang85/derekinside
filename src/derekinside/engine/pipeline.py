@@ -13,17 +13,16 @@ Then ranks by objective (optimize_quality|speed|cost).
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from derekinside.engine.model import (
     ModelEndpoint,
     NoModelSatisfies,
     intel_rank,
     cost_rank,
-    speed_rank,
 )
 
 logger = logging.getLogger(__name__)
+from derekinside.engine.registry import ModelRegistry
 
 
 class PipelineResolver:
@@ -65,11 +64,15 @@ class PipelineResolver:
             return self._rank(eligible, objective)[0]
 
         # Step 2: Relaxed constraint filtering (degradation)
-        logger.info("No model satisfies strict constraints for '%s', relaxing", capability)
+        logger.info(
+            "No model satisfies strict constraints for '%s', relaxing", capability
+        )
         relaxed = self._relax(requires)
         eligible = self._filter(candidates, relaxed, strict=False)
         if eligible:
-            logger.warning("Using relaxed constraints for '%s' — quality may degrade", capability)
+            logger.warning(
+                "Using relaxed constraints for '%s' — quality may degrade", capability
+            )
             return self._rank(eligible, objective)[0]
 
         raise NoModelSatisfies(
@@ -179,11 +182,7 @@ class PipelineResolver:
         if objective == "optimize_speed":
             models.sort(key=lambda m: m.profile.avg_latency_ms if m.profile else 9999)
         elif objective == "optimize_quality":
-            models.sort(
-                key=lambda m: -intel_rank(m.intelligence) if m.profile else 0
-            )
+            models.sort(key=lambda m: -intel_rank(m.intelligence) if m.profile else 0)
         elif objective == "optimize_cost":
-            models.sort(
-                key=lambda m: cost_rank(m.cost_tier) if m.profile else 0
-            )
+            models.sort(key=lambda m: cost_rank(m.cost_tier) if m.profile else 0)
         return models
